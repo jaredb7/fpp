@@ -96,6 +96,7 @@ $command_array = Array(
 	"saveUSBDongle" => 'SaveUSBDongle',
 	"getInterfaceInfo" => 'GetInterfaceInfo',
 	"setPiLCDenabled" => 'SetPiLCDenabled',
+    "setBBBTether" => 'SetBBBTether',
 	"updatePlugin" => 'UpdatePlugin',
 	"uninstallPlugin" => 'UninstallPlugin',
 	"installPlugin" => 'InstallPlugin',
@@ -305,6 +306,25 @@ function SetVolume()
 	$status=exec($SUDO . " amixer -c $card set $mixerDevice -- " . $vol . "%");
 
 	EchoStatusXML($status);
+}
+
+function SetBBBTether()
+{
+    global $SUDO;
+    
+    $enabled = $_GET['enabled'];
+    check($enabled, "enabled", __FUNCTION__);
+    
+    if ($enabled == "true")
+    {
+        $status = exec($SUDO . " sed -i -e \"s/TETHER_ENABLED=.*/TETHER_ENABLED=yes/\" /etc/default/bb-wl18xx");
+    }
+    else
+    {
+        $status = exec($SUDO . " sed -i -e \"s/TETHER_ENABLED=.*/TETHER_ENABLED=no/\" /etc/default/bb-wl18xx");
+    }
+    
+    EchoStatusXML($status);
 }
 
 function SetPiLCDenabled()
@@ -738,15 +758,25 @@ function StopNow()
 	EchoStatusXML('true');
 }
 
+function StopFPPDNoStatus()
+{
+    global $SUDO;
+    
+    // Stop Playing
+    SendCommand('d');
+    
+    // Shutdown
+    SendCommand('q'); // Ignore return and just kill if 'q' doesn't work...
+    // wait half a second for shutdown and outputs to close
+    usleep(500000);
+    // kill it if it's still running
+    exec($SUDO . " " . dirname(dirname(__FILE__)) . "/scripts/fppd_stop");
+}
 function StopFPPD()
 {
-	global $SUDO;
-
-	SendCommand('d'); // Ignore return and just kill if 'd' doesn't work...
-	$status=exec($SUDO . " " . dirname(dirname(__FILE__)) . "/scripts/fppd_stop");
-	EchoStatusXML('true');
+    StopFPPDNoStatus();
+    EchoStatusXML('true');
 }
-
 
 function StartFPPD()
 {
@@ -762,10 +792,7 @@ function StartFPPD()
 
 function RestartFPPD()
 {
-	global $SUDO;
-
-	exec($SUDO . " " . dirname(dirname(__FILE__)) . "/scripts/fppd_stop");
-
+    StopFPPDNoStatus();
 	StartFPPD();
 }
 
@@ -2582,6 +2609,7 @@ function GetZip()
 	$files = array(
 		"channelmemorymaps",
 		"channeloutputs",
+		"channelremap",
 		"config/channeloutputs.json",
 		"pixelnetDMX",
 		"schedule",

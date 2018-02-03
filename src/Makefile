@@ -205,14 +205,22 @@ SUBMODULES += \
 	$(NULL)
 else ifeq '$(ARCH)' 'BeagleBone Black'
 # BeagleBone Black
+CXXFLAGS += -std=gnu++14
 BINDIR = ../bin.bbb
 CFLAGS += \
+    -DNOROOT \
 	-DPLATFORM_BBB \
+    -DHAS_SDL \
 	-I../external/LEDscape/src/ledscape/ \
 	$(NULL)
 LIBS_fppd += \
 	-lledscape \
 	-lprussdrv \
+    -lSDL2 \
+    -lavformat \
+    -lavcodec \
+    -lavutil \
+    -lswresample \
 	$(NULL)
 LDFLAGS_fppd += \
 	-L../external/LEDscape/lib/ \
@@ -222,11 +230,12 @@ OBJECTS_fppd += \
 	channeloutput/LEDscapeMatrix.o \
 	channeloutput/BBB48String.o \
 	channeloutput/BBBSerial.o \
+    channeloutput/BBBUtils.o \
+    mediaoutput/SDLOut.o \
 	$(NULL)
 DEPS_fppd += \
 	../external/LEDscape/lib/libledscape.a \
 	$(NULL)
-SUBDIRS += pru
 SUBMODULES += \
 	external/LEDscape \
 	$(NULL)
@@ -275,7 +284,13 @@ gitsubmodules:
 
 force:
 
-release: $(TARGETS)
+debug: CFLAGS+=-g
+debug: $(TARGETS)
+
+optimized: CFLAGS+=-O1
+optimized: $(TARGETS)
+
+release: optimized
 	strip fpp
 	-$(INSTALL_PROGRAM) fpp $(BINDIR)/fpp
 	strip fppmm
@@ -299,7 +314,7 @@ fppversion.c: fppversion.sh force
 	@sh fppversion.sh $(PWD)
 
 %.o: %.cpp %.h Makefile
-	$(CCACHE) $(CC) $(CFLAGS) -c $< -o $@
+	$(CCACHE) $(CC) $(CFLAGS) $(CXXFLAGS) -c $< -o $@
 
 %.o: %.c %.h Makefile
 	$(CCACHE) $(CC) $(CFLAGS) -c $< -o $@
@@ -390,8 +405,8 @@ restart: fppd
 		git submodule init && \
 		git submodule update
 
-../external/LEDscape/lib/libledscape.a: ../external/LEDscape/.git
+../external/LEDscape/lib/libledscape.a: ../external/LEDscape/.git  ../external/LEDscape/src/ledscape/ledscape.c ../external/LEDscape/src/ledscape/ledscape.h
 	@echo "Building LEDscape library"
-	@cd ../external/LEDscape/ && git checkout master && git pull
-	@make -C ../external/LEDscape
+	@make -C ../external/LEDscape/src/ledscape
+
 
