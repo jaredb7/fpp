@@ -123,7 +123,7 @@ function SaveDNSConfig()
 	var postData = "command=setDNSInfo&data=" + JSON.stringify(data);
 
 	$.post("fppjson.php", postData
-	).success(function(data) {
+	).done(function(data) {
 		LoadDNSConfig();
 		$.jGrowl(" DNS configuration saved");
 		$('#btnConfigDNS').show();
@@ -211,7 +211,7 @@ function SaveNetworkConfig()
 	var postData = "command=setInterfaceInfo&data=" + JSON.stringify(data);
 
 	$.post("fppjson.php", postData
-	).success(function(data) {
+	).done(function(data) {
 		LoadNetworkConfig();
 		$.jGrowl(iface + " network interface configuration saved");
 		$('#btnConfigNetwork').show();
@@ -312,7 +312,7 @@ function GetInterfaceInfo(data,status)
 	$('#eth_netmask').val(data.NETMASK);
 	$('#eth_gateway').val(data.GATEWAY);
 
-	if (data.INTERFACE.substr(0,4) == "wlan")
+	if (data.INTERFACE && data.INTERFACE.substr(0,4) == "wlan")
 	{
 		$('#eth_ssid').val(data.SSID);
 		$('#eth_psk').val(data.PSK);
@@ -348,7 +348,7 @@ function setHostName() {
 
 	$.get("fppjson.php?command=setSetting&key=HostName&value="
 		+ $('#hostName').val()
-	).success(function() {
+	).done(function() {
 		$.jGrowl("HostName Saved");
 		refreshFPPSystems();
 	}).fail(function() {
@@ -466,11 +466,11 @@ function setHostName() {
             <table width = "100%" border="0" cellpadding="1" cellspacing="1">
             <tr>
                 <td width = "25%">Tethering SSID:</td>
-                <td width = "75%"><? PrintSettingText("TetherSSID", 0, 1, 32, 32, "", "FPP"); ?></td>
+                <td width = "75%"><? PrintSettingTextSaved("TetherSSID", 0, 1, 32, 32, "", "FPP"); ?></td>
             </tr>
             <tr>
                 <td>Tethering Pre Shared key (PSK):</td>
-                <td><? PrintSettingText("TetherPSK", 0, 1, 32, 32, "", "Christmas"); ?></td>
+                <td><? PrintSettingTextSaved("TetherPSK", 0, 1, 32, 32, "", "Christmas"); ?></td>
             </tr>
             </tr>
             </table>

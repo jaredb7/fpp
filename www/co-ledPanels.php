@@ -101,6 +101,7 @@ $LEDPanelHeight = 16;
 $LEDPanelScan = 8;
 $LEDPanelInterleave = "0";
 $LEDPanelAddressing = 0;
+$LEDPanelGamma = 1.0;
 
 if ($settings['Platform'] == "BeagleBone Black")
 {
@@ -166,6 +167,7 @@ function printLEDPanelSizeSelect($platform, $def, $addr)
     } else {
         $values["32x16"] = "32x16x8";
         $values["32x32"] = "32x32x16";
+        $values["64x32"] = "64x32x16";
     }
     
     if ($addr != "0" && $addr != "") {
@@ -210,6 +212,7 @@ var LEDPanelAddressing = <? echo $LEDPanelAddressing; ?>;
 var LEDPanelInterleave = <? echo $LEDPanelInterleave; ?>;
 var LEDPanelRows = <? echo $LEDPanelRows; ?>;
 var LEDPanelCols = <? echo $LEDPanelCols; ?>;
+var LEDPanelGamma = <? echo $LEDPanelGamma; ?>;
 
 function UpdatePanelSize()
 {
@@ -368,7 +371,7 @@ function InitializeLEDPanels()
 		$('#LEDPanelsChannelCount').html(channelOutputsLookup["LEDPanelMatrix"].channelCount);
 		$('#LEDPanelsColorOrder').val(channelOutputsLookup["LEDPanelMatrix"].colorOrder);
 		$('#LEDPanelsBrightness').val(channelOutputsLookup["LEDPanelMatrix"].brightness);
-        $('#LEDPanelsGamma').val(channelOutputsLookup["LEDPanelMatrix"].gamma);
+                $('#LEDPanelsGamma').val(channelOutputsLookup["LEDPanelMatrix"].gamma);
 		$('#LEDPanelsConnection').val(channelOutputsLookup["LEDPanelMatrix"].subType);
 		$('#LEDPanelsInterface').val(channelOutputsLookup["LEDPanelMatrix"].interface);
 		$('#LEDPanelsSourceMacInput').val(channelOutputsLookup["LEDPanelMatrix"].sourceMAC);
@@ -736,11 +739,13 @@ if ($settings['Platform'] == "BeagleBone Black") {
 						<tr><td><b>Connection:</b></td>
 							<td><select id='LEDPanelsConnection' onChange='LEDPannelsConnectionChanged();'>
 <?
-if (($settings['Platform'] == "Raspberry Pi") ||
-	($settings['Platform'] == "BeagleBone Black"))
-{
+if ($settings['Platform'] == "Raspberry Pi") {
 ?>
-									<option value='Hat-Cap-Cape'>Hat/Cap/Cape</option>
+                                                                        <option value='RGBMatrix'>Hat/Cap/Cape</option>
+<?
+} else if ($settings['Platform'] == "BeagleBone Black") {
+?>
+                                                                        <option value='LEDscapeMatrix'>Hat/Cap/Cape</option>
 <?
 }
 ?>

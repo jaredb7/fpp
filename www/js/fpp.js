@@ -35,37 +35,33 @@ function PopulatePlaylists(element) {
 	var Filename;
  
 	xmlhttp.onreadystatechange = function () {
-		if (xmlhttp.readyState == 4 && xmlhttp.status==200) 
-		{
+		if (xmlhttp.readyState == 4 && xmlhttp.status==200) {
 			var xmlDoc=xmlhttp.responseXML; 
 	
 			var productList = xmlDoc.getElementsByTagName('Playlists')[0];
-			var innerHTML = "<ol>";
-			if(productList.childNodes.length> 0)
-			{
-				innerHTML += "<table border=0 cellspacing=0 cellpadding=0><tr><td valign='top'>";
-				var rowsPerCol = 10;
-				if (productList.childNodes.length > 45)
-				{
-					rowsPerCol = Math.ceil(productList.childNodes.length / 4);
-				}
-				else if (productList.childNodes.length > 30)
-					rowsPerCol = 15;
+			var innerHTML = "";
+			if(productList.childNodes.length> 0) {
+				var colCount = 1;
+				if (productList.childNodes.length > 30) {
+					colCount = 4;
+                } else if (productList.childNodes.length > 20) {
+					colCount = 3;
+                } else if (productList.childNodes.length > 10) {
+                    colCount = 2;
+                }
+                
+                innerHTML += "<ol style='list-style-position: inside; -webkit-column-count:" + colCount + "; -webkit-column-gap:20px; -moz-column-count:"
+                    + colCount + "; -moz-column-gap:20px; column-count:" + colCount + "; column-gap:20px;'>";
 
-				for(i=0;i<productList.childNodes.length;i++)
-					{
-						if ((i != 0) && ((i % rowsPerCol) == 0))
-							innerHTML += "</td><td width='50px'>&nbsp;</td><td valign='top'>";
-						Filename = productList.childNodes[i].textContent;
-						// Remove extension
-						//Filename = Filename.substr(0, x.lastIndexOf('.'));	
-						innerHTML += "<li><a href='#' id=playlist" + i.toString() + " onclick=\"PopulatePlayListEntries('" + Filename + "',true)\">" + Filename + "</a></li>";
-					}
-					innerHTML += "</tr></table></ol>";
-			}
-			else
-			{
-				innerHTML = "No Results Found";	
+				for (i=0; i < productList.childNodes.length; i++) {
+                    Filename = productList.childNodes[i].textContent;
+                    // Remove extension
+                    //Filename = Filename.substr(0, x.lastIndexOf('.'));
+                    innerHTML += "<li><a href='#' id=playlist" + i.toString() + " onclick=\"PopulatePlayListEntries('" + Filename + "',true)\">" + Filename + "</a></li>";
+                }
+                innerHTML += "</ol>";
+			} else {
+				innerHTML = "No Playlists Created";
 			}
 			var results = document.getElementById(element);
 			results.innerHTML = innerHTML;	
@@ -159,7 +155,9 @@ function PlaylistEntryToTR(i, entry, editMode)
 		HTML += GetPlaylistRowHTML((i+1).toString(), "MQTT", entry.topic, entry.message, "", i.toString(), editMode);
 	else if(entry.type == 'dynamic')
 		HTML += GetPlaylistRowHTML((i+1).toString(), "Dynamic", entry.subType, entry.data, "", i.toString(), editMode);
-	else if(entry.type == 'url')
+    else if(entry.type == 'volume')
+        HTML += GetPlaylistRowHTML((i+1).toString(), "Volume", entry.volume, "", "", i.toString(), editMode);
+    else if(entry.type == 'url')
 		HTML += GetPlaylistRowHTML((i+1).toString(), "URL", entry.method + ' - ' + entry.url, "", entry.data, i.toString(), editMode);
 	else if(entry.type == 'remap')
 	{
@@ -337,6 +335,10 @@ function PlaylistTypeChanged() {
 	{
 		$('#dynamicOptions').show();
 	}
+    else if (type == 'volume')
+    {
+        $('#volumeOptions').show();
+    }
 	else if (type == 'url')
 	{
 		$('#urlOptions').show();
@@ -499,6 +501,10 @@ function AddPlaylistEntry() {
 				entry.subType = $('#dynamicSubType').val();
 				entry.data = $('#dynamicData').val();
 			}
+            else if (entry.type == 'volume')
+            {
+                entry.volume = $('#volume').val();
+            }
 			else if (entry.type == 'url')
 			{
 				entry.url = $('#url').val();
@@ -512,7 +518,7 @@ function AddPlaylistEntry() {
 
 			var postData = 'command=addPlaylistEntry&data=' + JSON.stringify(entry);
 
-			$.post("fppjson.php", postData).success(function(data) {
+			$.post("fppjson.php", postData).done(function(data) {
 				PopulatePlayListEntries($('#txtPlaylistName').val(),false);
 			}).fail(function() {
 				$.jGrowl("Error: Unable to add new playlist entry.");
@@ -593,8 +599,15 @@ function DeletePlaylist() {
 			xmlhttp.onreadystatechange = function () {
 				if (xmlhttp.readyState == 4 && xmlhttp.status==200) 
 				{
-					var xmlDoc=xmlhttp.responseXML; 
-          PopulatePlaylists("playList");
+					var xmlDoc=xmlhttp.responseXML;
+                    status_xml = xmlDoc.getElementsByTagName("Status")[0].textContent;
+
+                    if (status_xml === "Failure" || status_xml !== "Success"){
+                        //fail
+                        DialogError("Failed to delete Playlist","Failed to delete Playlist '" + name.value + "'.")
+					}
+
+                    PopulatePlaylists("playList");
 					var firstPlaylist = document.getElementById("playlist0");
 					if ( firstPlaylist )
 						PopulatePlayListEntries(firstPlaylist.innerHTML,true);
@@ -680,7 +693,7 @@ function RemovePlaylistEntry()	{
 			document.body.style.cursor = "wait";
 
 			$.get("fppxml.php?command=uninstallPlugin&plugin=" + pluginName
-			).success(function() {
+			).done(function() {
 				document.body.style.cursor = "pointer";
 				location.reload(true);
 			}).fail(function() {
@@ -712,7 +725,7 @@ function RemovePlaylistEntry()	{
 			document.body.style.cursor = "wait";
 
 			$.get("fppxml.php?command=installPlugin&plugin=" + pluginName
-			).success(function() {
+			).done(function() {
 				document.body.style.cursor = "pointer";
 				location.reload(true);
 			}).fail(function() {
@@ -727,7 +740,7 @@ function RemovePlaylistEntry()	{
 			document.body.style.cursor = "wait";
 
 			$.get("fppxml.php?command=manualGitUpdate"
-			).success(function() {
+			).done(function() {
 				document.body.style.cursor = "pointer";
 				location.reload(true);
 			}).fail(function() {
@@ -747,7 +760,7 @@ function RemovePlaylistEntry()	{
 //				$('#dialog-help').dialog( "moveToTop" );
 
 				$.get("ping.php?ip=" + ip + "&count=" + count
-				).success(function(data) {
+				).done(function(data) {
 						$('#helpText').html(data);
 				}).fail(function() {
 						$('#helpText').html("Error pinging " + ip);
@@ -767,7 +780,7 @@ function RemovePlaylistEntry()	{
 				$('#dialog-help').dialog( "moveToTop" );
 
 				$.get("fppxml.php?command=viewReleaseNotes&version=" + version
-				).success(function(data) {
+				).done(function(data) {
 						$('#helpText').html(
 						"<center><input onClick='UpgradeFPPVersion(\"" + version + "\");' type='button' class='buttons' value='Upgrade'></center>" +
 						"<pre>" + data + "</pre>"
@@ -783,7 +796,7 @@ function RemovePlaylistEntry()	{
 			{
 				document.body.style.cursor = "wait";
 				$.get("fppxml.php?command=upgradeFPPVersion&version=v" + newVersion
-				).success(function() {
+				).done(function() {
 					document.body.style.cursor = "pointer";
 					location.reload(true);
 				}).fail(function() {
@@ -797,7 +810,7 @@ function RemovePlaylistEntry()	{
 		{
 			document.body.style.cursor = "wait";
 			$.get("fppxml.php?command=changeGitBranch&branch=" + newBranch
-			).success(function() {
+			).done(function() {
 				document.body.style.cursor = "pointer";
 				location.reload(true);
 			}).fail(function() {
@@ -875,7 +888,7 @@ function RemovePlaylistEntry()	{
                 var univ = $(item).parent().parent().find("input.txtUniverse");
                 univ.prop('disabled', true);
                 var sz = $(item).parent().parent().find("input.txtSize");
-                sz.prop('max', 256000);
+                sz.prop('max', 512000);
             } else {
                 var univ = $(item).parent().parent().find("input.txtUniverse");
                 univ.prop('disabled', false);
@@ -949,7 +962,7 @@ function RemovePlaylistEntry()	{
                                 var universeSize = 512;
                                 var universeDisable = "";
                                 if (type == 4 || type == 5) {
-                                    universeSize = 256000;
+                                    universeSize = 512000;
                                     universeDisable = " disabled";
                                 }
 
@@ -957,7 +970,7 @@ function RemovePlaylistEntry()	{
 								              "<td><span class='rowID'>" + (i+1).toString() + "</span></td>" +
 															"<td><input class='chkActive' type='checkbox' " + activeChecked +"/></td>" +
 															"<td><input class='txtDesc' type='text' size='24' maxlength='64' value='" + desc + "'/></td>" +
-															"<td><input class='txtStartAddress' type='number' min='1' max='524288' value='" + startAddress.toString() + "'/></td>" +
+															"<td><input class='txtStartAddress' type='number' min='1' max='1048576' value='" + startAddress.toString() + "'/></td>" +
 															"<td><input class='txtUniverse' type='number' min='1' max='63999' value='" + universe.toString() + "'" + universeDisable + "/></td>" +
 															"<td><input class='txtSize' type='number'  min='1'  max='" + universeSize + "' value='" + size.toString() + "'></td>" +
 															
@@ -1209,7 +1222,7 @@ function RemovePlaylistEntry()	{
                 }
 				// start address
 				txtStartAddress=document.getElementById("txtStartAddress[" + i + "]");				
-				if(!validateNumber(txtStartAddress,1,524288))
+				if(!validateNumber(txtStartAddress,1,1048576))
 				{
 					returnValue = false;
 				}
@@ -1217,7 +1230,7 @@ function RemovePlaylistEntry()	{
                 txtSize=document.getElementById("txtSize[" + i + "]");
                 var max = 512;
                 if (universeType == 4 || universeType == 5) {
-                    max = 256000;
+                    max = 512000;
                 }
                 if(!validateNumber(txtSize,1,max))
                 {
@@ -1824,7 +1837,7 @@ if (1) {
 			{
 					var xmlDoc=xmlhttp.responseXML; 
 					var receivedBytes = xmlDoc.getElementsByTagName('receivedBytes')[0];
-					if(receivedBytes.childNodes.length> 0)
+					if(receivedBytes && receivedBytes.childNodes.length> 0)
 					{
 						html =  "<table>";
 						html += "<tr id=\"rowReceivedBytesHeader\"><td>Universe</td><td>Start Address</td><td>Packets</td><td>Bytes</td><td>Errors</td></tr>";
@@ -1853,7 +1866,7 @@ if (1) {
 						}
 						html += "</table>";
 					}
-					if(receivedBytes.childNodes.length>32)
+					if(receivedBytes && receivedBytes.childNodes.length>32)
 					{
 						$("#bridgeStatistics1").html(html1);
 						$("#bridgeStatistics2").html(html);
@@ -1962,7 +1975,7 @@ if (1) {
 
 	function SetSetting(key, value, restart, reboot) {
 		$.get("fppjson.php?command=setSetting&key=" + key + "&value=" + value)
-			.success(function() {
+			.done(function() {
 				if ((key != 'restartFlag') && (key != 'rebootFlag'))
 					$.jGrowl(key + " setting saved.");
 
@@ -2025,7 +2038,7 @@ function GetFPPDUptime()
 function RestartFPPD() {
 		$('html,body').css('cursor','wait');
 		$.get("fppxml.php?command=restartFPPD"
-		).success(function() {
+		).done(function() {
 			$('html,body').css('cursor','auto');
 			$.jGrowl('FPPD Restarted');
 			ClearRestartFlag();
@@ -2485,7 +2498,7 @@ function SetVolume(value)
 function SetFPPDmode()
 {
 	$.get("fppxml.php?command=setFPPDmode&mode=" + $('#selFPPDmode').val()
-	).success(function() {
+	).done(function() {
 		$.jGrowl("fppMode Saved");
 		RestartFPPD();
 	}).fail(function() {
@@ -2597,7 +2610,7 @@ function CopyFile(dir, file)
 
 	var postData = "command=copyFile&dir=" + dir + "&filename=" + encodeURIComponent(file) + "&newfilename=" + encodeURIComponent(newFile);
 
-	$.post("fppjson.php", postData).success(function(data) {
+	$.post("fppjson.php", postData).done(function(data) {
 		if (data.status == 'success')
 			GetFiles(dir);
 		else
@@ -2613,7 +2626,7 @@ function RenameFile(dir, file)
 
 	var postData = "command=renameFile&dir=" + dir + "&filename=" + encodeURIComponent(file) + "&newfilename=" + encodeURIComponent(newFile);
 
-	$.post("fppjson.php", postData).success(function(data) {
+	$.post("fppjson.php", postData).done(function(data) {
 		if (data.status == 'success')
 			GetFiles(dir);
 		else
@@ -2710,7 +2723,7 @@ function ConvertFile(file, convertTo)
 	document.body.style.cursor = "wait";
 
 	$.get("fppxml.php?command=convertFile&convertTo=" +
-		convertTo + "&filename=" + file).success(function(data) {
+		convertTo + "&filename=" + file).done(function(data) {
 	
 			target.style.display = 'none';
 			document.body.style.cursor = "default";

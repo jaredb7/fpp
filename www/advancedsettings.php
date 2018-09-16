@@ -80,7 +80,7 @@ function flashEMMCBtrfs() {
 	<fieldset>
 	<legend>FPP Advanced Settings</legend>
 	<table table width = "100%">
-		<tr><td valign='top'><? PrintSettingSelect("E1.31 Bridging Transmit Interval", "E131BridgingInterval", 1, 0,"50", Array('10ms' => '10', '25ms' => '25', '40ms' => '40', '50ms' => '50', '100ms' => '100')); ?></td>
+		<tr><td valign='top'><? PrintSettingSelect("E1.31 Bridging Transmit Interval", "E131BridgingInterval", 1, 0, "50", Array('10ms' => '10', '25ms' => '25', '40ms' => '40', '50ms' => '50', '100ms' => '100')); ?></td>
 			<td valign='top'><b>E1.31 Bridge Mode Transmit Interval</b> - The
 				default Transmit Interval in E1.31 Bridge Mode is 50ms.  This
 				setting allows changing this to match the rate the player is
@@ -143,7 +143,7 @@ function flashEMMCBtrfs() {
     if ($settings['Platform'] == "BeagleBone Black") {
         exec('findmnt -n -o SOURCE / | colrm 1 5', $output, $return_val);
         $rootDevice = $output[0];
-        if ($rootDevice == 'mmcblk0p1') {
+        if ($rootDevice == 'mmcblk0p1' || $rootDevice == 'mmcblk0p2') {
 ?>
             <tr><td colspan='2'><hr></td></tr>
             <tr><td>
@@ -175,6 +175,49 @@ function flashEMMCBtrfs() {
 ?>
 	</table>
 	</fieldset>
+<br/>
+    <fieldset>
+          <legend>MQTT</legend>
+            <table width = "100%" border="0" cellpadding="1" cellspacing="1">
+                <tr>
+                    <td >MQTT Broker Host:</td>
+                    <td ><? PrintSettingTextSaved("MQTTHost", 1, 0, 64, 32, "", ""); ?></td>
+                </tr>
+                <tr>
+                    <td >MQTT Broker Port:</td>
+                    <td ><? PrintSettingTextSaved("MQTTPort", 1, 0, 32, 32, "", ""); ?></td>
+                </tr>
+                <tr>
+                    <td >MQTT Prefix:</td>
+                    <td ><? PrintSettingTextSaved("MQTTPrefix", 1, 0, 32, 32, "", ""); ?></td>
+                </tr>
+            </table>
+            MQTT events will be published to "$prefix/falcon/player/$hostname/" with playlist events being in the "playlist" subtopic. <br/>
+FPP will respond to certain events:
+<div class="fppTableWrapper">
+<table width = "100%" border="0" cellpadding="1" cellspacing="1">
+<tr><th>Topic</th><th>Action</th></tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/playlist/name/set</td><td>Starts the plalist named in the payload</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/playlist/repeat/set</td><td>If payload is "1", will turn on repeat, otherwise it is turned off</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/playlist/sectionPosition/set</td><td>Payload contains an integer for the position in the playlist</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/event/$MAJ_$MIN</td><td>Starts the event identified by MAJ/MIN</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/effect/start</td><td>Starts the effect named in the payload</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/effect/stop</td><td>Stops the effect named in the payload or all effects if payload is empty</td>
+</tr>
+</table>
+</div>
+    </fieldset>
 </div>
 <div id="dialog-confirm" style="display: none">
 <p><span class="ui-icon ui-icon-alert" style="flat:left; margin: 0 7px 20px 0;"></span>Growing the filesystem will sometimes require a reboot to take effect.  Do you wish to proceed?</p>

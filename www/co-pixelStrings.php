@@ -8,10 +8,12 @@
 
 .outputTable th {
 	vertical-align: bottom;
+    font-size: 0.9em;
 }
 
 .outputTable td {
 	text-align: center;
+    padding: 0px 9px 0px 0px ;
 }
 
 .addButton {
@@ -32,9 +34,13 @@
 	background-repeat: no-repeat;
 }
 
-#pixelOutputs input[type=text] {
+.outputTable tbody tr td input[type=text] {
 	text-align: center;
-	width: 100%;
+    width: 100%;
+}
+.outputTable tbody tr td input[type=number] {
+    text-align: center;
+    width: 100%;
 }
 
 </style>
@@ -349,6 +355,7 @@ function getPixelStringOutputJSON()
 
 		output.type = MapPixelStringType($this.attr('type'));
         output.subType = MapPixelStringSubType($this.attr('type'));
+        output.pinoutVersion = MapPixelStringSubTypeVersion($this.attr('type'));
 		output.enabled = ($('#' + enableId).is(':checked')) ? 1 : 0;
 		output.startChannel = 1;
 		output.channelCount = -1;

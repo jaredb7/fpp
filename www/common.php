@@ -144,7 +144,7 @@ function " . $setting . "Changed() {
 	}
 
 	$.get('fppjson.php?command=set" . $plugin . "Setting&plugin=$pluginName&key=$setting&value=' + value)
-		.success(function() {
+		.done(function() {
 			if (checked)
 				$.jGrowl('$title Enabled');
 			else
@@ -204,7 +204,7 @@ function " . $setting . "Changed() {
 	var value = $('#$setting').val();
 
 	$.get('fppjson.php?command=set" . $plugin . "Setting&plugin=$pluginName&key=$setting&value=' + value)
-		.success(function() {
+		.done(function() {
 			$.jGrowl('$title saved');
 			$settingsName" . "['$setting'] = value;
 			$callbackName
@@ -228,11 +228,11 @@ echo "
 	{
 		echo "<option value='$value'";
 
-		if ($value == $defaultValue)
-			echo " selected";
-		else if (isset($pluginSettings[$setting]) || isset($settings[$setting]))
+		
+		if (isset($pluginSettings[$setting]) || isset($settings[$setting]))
 			IfSettingEqualPrint($setting, $value, " selected", $pluginName);
-
+        else if ($value == $defaultValue)
+            echo " selected";
 		echo ">$key</option>\n";
 	}
 
@@ -254,6 +254,61 @@ function PrintSettingText($setting, $restart = 1, $reboot = 0, $maxlength = 32, 
 
 	echo "
 <input type='text' id='$setting' maxlength='$maxlength' size='$size' value=\"";
+
+	if (isset($settings[$setting]))
+		echo $settings[$setting];
+	elseif (isset($pluginSettings[$setting]))
+		echo $pluginSettings[$setting];
+	else
+		echo $defaultValue;
+
+	echo "\">\n";
+}
+function PrintSettingTextSaved($setting, $restart = 1, $reboot = 0, $maxlength = 32, $size = 32, $pluginName = "", $defaultValue = "", $callbackName = "", $changedFunction = "")
+{
+	global $settings;
+	global $pluginSettings;
+
+	$plugin = "";
+	$settingsName = "settings";
+
+	if ($pluginName != "") {
+		$plugin = "Plugin";
+		$settingsName = "pluginSettings";
+	}
+
+    
+    if ($callbackName != "")
+        $callbackName = $callbackName . "();";
+    if ($changedFunction == "")
+        $changedFunction = $setting . "Changed";
+
+    echo "
+    <script>
+    function " . $setting . "Changed() {
+        var value = $('#$setting').val();
+        $.get('fppjson.php?command=set" . $plugin . "Setting&plugin=$pluginName&key=$setting&value=' + value)
+        .done(function() {
+              $.jGrowl('$setting Saved');
+              $settingsName" . "['$setting'] = value;
+              ";
+              
+              if ($restart)
+                echo "SetRestartFlag();\n";
+              if ($reboot)
+                echo "SetRebootFlag();\n";
+              
+              echo "
+              $callbackName
+              CheckRestartRebootFlags();
+              }).fail(function() {
+                      DialogError('$setting', 'Failed to save $setting');
+              });
+    }
+    </script>
+
+    
+    <input type='text' id='$setting' maxlength='$maxlength' size='$size' onChange='" . $changedFunction . "();' value=\"";
 
 	if (isset($settings[$setting]))
 		echo $settings[$setting];
@@ -287,7 +342,7 @@ function save" . $setting . "() {
 	var value = $('#$setting').val();
 
 	$.get('fppjson.php?command=set" . $plugin . "Setting&plugin=$pluginName&key=$setting&value=' + value)
-		.success(function() {
+		.done(function() {
 			$.jGrowl('$title saved');
 			$settingsName" . "['$setting'] = value;
 			$callbackName

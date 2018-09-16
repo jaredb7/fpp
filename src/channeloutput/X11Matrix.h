@@ -42,6 +42,8 @@ class X11MatrixOutput : public ChannelOutputBase {
 
 	void DumpConfig(void);
 
+	virtual void GetRequiredChannelRange(int &min, int & max);
+
   private:
   	int         m_width;
 	int         m_height;
@@ -56,6 +58,8 @@ class X11MatrixOutput : public ChannelOutputBase {
 	GC          m_gc;
 	Pixmap      m_pixmap;
 	XImage     *m_image;
+
+	std::string m_title;
 };
 
 #endif /* _X11MATRIX_H */

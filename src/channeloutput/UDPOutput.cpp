@@ -52,10 +52,13 @@ UDPOutputData::~UDPOutputData() {
 
 
 
-UDPOutput::UDPOutput(unsigned int startChannel, unsigned int channelCount) {
+UDPOutput::UDPOutput(unsigned int startChannel, unsigned int channelCount)
+    : pingThread(nullptr), rebuildOutputLists(false)
+{
     sendSocket = -1;
 }
 UDPOutput::~UDPOutput() {
+    runDisabledPings = false;
     for (auto a : outputs) {
         delete a;
     }
@@ -104,6 +107,18 @@ void UDPOutput::PrepData(unsigned char *channelData) {
         }
     }
 }
+void  UDPOutput::GetRequiredChannelRange(int &min, int & max) {
+    min = FPPD_MAX_CHANNELS;
+    max = 0;
+    if (enabled) {
+        for (auto a : outputs) {
+            if (a->active) {
+                min = std::min(min, a->startChannel - 1);
+                max = std::max(max, (a->startChannel + a->channelCount - 2));
+            }
+        }
+    }
+}
 
 int UDPOutput::SendMessages(int socket, std::vector<struct mmsghdr> &sendmsgs) {
     errno = 0;
@@ -125,6 +140,10 @@ int UDPOutput::SendMessages(int socket, std::vector<struct mmsghdr> &sendmsgs) {
 }
 
 int UDPOutput::RawSendData(unsigned char *channelData) {
+    if (rebuildOutputLists) {
+        RebuildOutputMessageLists();
+    }
+    
     if ((udpMsgs.size() == 0 && broadcastMsgs.size() == 0) || !enabled) {
         return 0;
     }
@@ -133,8 +152,8 @@ int UDPOutput::RawSendData(unsigned char *channelData) {
     int outputCount = SendMessages(sendSocket, udpMsgs);
     auto t2 = clock.now();
     long diff = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-    if ((outputCount != udpMsgs.size()) || (diff > 200)) {
-        //failed to send all messages or it took more than 200ms to send them
+    if ((outputCount != udpMsgs.size()) || (diff > 100)) {
+        //failed to send all messages or it took more than 100ms to send them
         LogErr(VB_CHANNELOUT, "sendmmsg() failed for UDP output (output count: %d/%d   time: %u ms) with error: %d   %s\n",
                outputCount, udpMsgs.size(), diff,
                errno,
@@ -149,9 +168,53 @@ int UDPOutput::RawSendData(unsigned char *channelData) {
     
     return 1;
 }
+
+void DoPingThread(UDPOutput *output) {
+    output->BackgroundThreadPing();
+}
+void UDPOutput::BackgroundThreadPing() {
+    while (runDisabledPings) {
+        std::this_thread::sleep_for (std::chrono::seconds(10));
+        bool newValid = false;
+        
+        std::map<std::string, int> done;
+
+        std::unique_lock<std::mutex> lck (invalidOutputsMutex);
+        for (auto a : invalidOutputs) {
+            if (!a->valid) {
+                std::string host = a->ipAddress;
+                if (done[host] == 0) {
+                    int p = ping(host);
+                    if (p <= 0) {
+                        p = -1;
+                    }
+                    done[host] = p;
+                    if (p > 0) {
+                        LogWarn(VB_CHANNELOUT, "Can ping host %s, re-adding to outputs\n",
+                                host.c_str());
+                    }
+                }
+                a->valid = done[host] > 0;
+            }
+            if (a->valid) {
+                newValid = true;
+            }
+        }
+        
+        if (newValid) {
+            //at least one output became valid, let main thread know to rebuild the
+            //output message maps
+            rebuildOutputLists = true;
+        }
+    }
+    std::thread *t = pingThread;
+    pingThread = nullptr;
+    delete t;
+}
 void UDPOutput::PingControllers() {
+    LogDebug(VB_CHANNELOUT, "Pinging controllers to see what is online\n");
+
     std::map<std::string, int> done;
-    bool hasInvalid = false;
     for (auto o : outputs) {
         if (o->IsPingable() && o->active) {
             std::string host = o->ipAddress;
@@ -161,7 +224,11 @@ void UDPOutput::PingControllers() {
                     p = -1;
                 }
                 done[host] = p;
-                hasInvalid = true;
+
+                if (p > 0 && !o->valid) {
+                    LogWarn(VB_CHANNELOUT, "Could ping host %s, re-adding to outputs\n",
+                            host.c_str());
+                }
             }
         }
     }
@@ -176,10 +243,24 @@ void UDPOutput::PingControllers() {
                     p = -2;
                 }
                 done[host] = p;
+                
+                if (p < 0 && o->valid) {
+                    LogWarn(VB_CHANNELOUT, "Could not ping host %s, removing from output\n",
+                            host.c_str());
+                } else if (p > 0 && !o->valid) {
+                    LogWarn(VB_CHANNELOUT, "Could ping host %s, re-adding to outputs\n",
+                            host.c_str());
+                }
             }
             o->valid = p > 0;
         }
     }
+    RebuildOutputMessageLists();
+}
+void UDPOutput::RebuildOutputMessageLists() {
+    LogDebug(VB_CHANNELOUT, "Rebuilding message lists\n");
+
+    rebuildOutputLists = false;
     udpMsgs.clear();
     broadcastMsgs.clear();
     for (auto a : outputs) {
@@ -194,6 +275,20 @@ void UDPOutput::PingControllers() {
             a->AddPostDataMessages(broadcastMsgs);
         }
     }
+    std::unique_lock<std::mutex> lck (invalidOutputsMutex);
+    invalidOutputs.clear();
+    for (auto a : outputs) {
+        if (!a->valid && a->active && a->IsPingable()) {
+            //active, but not valid, likely lost the ping
+            //save it so we can try re-enabling
+            invalidOutputs.push_back(a);
+        }
+    }
+
+    if (!invalidOutputs.empty() && pingThread == nullptr) {
+        runDisabledPings = true;
+        pingThread = new std::thread(DoPingThread, this);
+    }
 }
 void UDPOutput::DumpConfig() {
     ChannelOutputBase::DumpConfig();
@@ -203,8 +298,6 @@ void UDPOutput::DumpConfig() {
 }
 
 bool UDPOutput::InitNetwork() {
-    
-
     char E131LocalAddress[16];
     GetInterfaceAddress(getE131interface(), E131LocalAddress, NULL, NULL);
     LogDebug(VB_CHANNELOUT, "UDPLocalAddress = %s\n",E131LocalAddress);
@@ -223,10 +316,6 @@ bool UDPOutput::InitNetwork() {
     localAddress.sin_addr.s_addr = inet_addr(E131LocalAddress);
 
     errno = 0;
-    if (bind(sendSocket, (struct sockaddr *) &localAddress, sizeof(struct sockaddr_in)) == -1) {
-        LogErr(VB_CHANNELOUT, "Error in bind:errno=%d, %s\n", errno, strerror(errno));
-    }
-    
     /* Disable loopback so I do not receive my own datagrams. */
     char loopch = 0;
     if (setsockopt(sendSocket, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopch, sizeof(loopch)) < 0) {
@@ -234,7 +323,12 @@ bool UDPOutput::InitNetwork() {
         close(sendSocket);
         return false;
     }
-    
+    if (bind(sendSocket, (struct sockaddr *) &localAddress, sizeof(struct sockaddr_in)) == -1) {
+        LogErr(VB_CHANNELOUT, "Error in bind:errno=%d, %s\n", errno, strerror(errno));
+    }
+    if (connect(sendSocket, (struct sockaddr *)&localAddress, sizeof(localAddress)) < 0)  {
+        LogErr(VB_CHANNELOUT, "Error connecting IP_MULTICAST_LOOP socket\n");
+    }
     
     broadcastSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (broadcastSocket < 0) {
@@ -257,6 +351,10 @@ bool UDPOutput::InitNetwork() {
         LogErr(VB_SYNC, "Error setting SO_BROADCAST: \n", strerror(errno));
         exit(1);
     }
+    if (connect(broadcastSocket, (struct sockaddr *)&localAddress, sizeof(localAddress)) < 0)  {
+        LogErr(VB_CHANNELOUT, "Error connecting IP_MULTICAST_LOOP socket\n");
+    }
+
     return true;
 }
 

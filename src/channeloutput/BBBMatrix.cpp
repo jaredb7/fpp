@@ -311,6 +311,7 @@ BBBMatrix::BBBMatrix(unsigned int startChannel, unsigned int channelCount)
 {
 	LogDebug(VB_CHANNELOUT, "BBBMatrix::BBBMatrix(%u, %u)\n",
 		startChannel, channelCount);
+    m_useOutputThread = 0;
 }
 
 BBBMatrix::~BBBMatrix()
@@ -589,6 +590,10 @@ void BBBMatrix::printStats() {
     fprintf(rfile, "Average Per Row/Bit:   %8X\n", (total / count));
     //printf("0x%X\n", (total / count));
     fclose(rfile);
+}
+void BBBMatrix::GetRequiredChannelRange(int &min, int & max) {
+    min = m_startChannel;
+    max = m_startChannel + m_channelCount - 1;
 }
 
 

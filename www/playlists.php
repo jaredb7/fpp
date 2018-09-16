@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html>
 <?php
 require_once('config.php');
 require_once('playlistentry.php');
@@ -43,8 +45,6 @@ function SetSetting($file,$varName,$varValue)
 
 ?>
 
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
     <head>
     <?php	include 'common/menuHead.inc'; ?>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -129,7 +129,7 @@ $(document).ready(function () {
 		if ($('#autoSelectMatches').is(':checked') == false)
 			return;
 
-		var value = $('#selMedia').val().replace(/\.ogg|\.mp3|\.mp4/i, "");
+		var value = $('#selMedia').val().replace(/\.ogg|\.mp3|\.mp4|\.m4a/i, "");
 
 		var seq = document.getElementById("selSequence")
 		for (var i = 0; i < seq.length; i++) {
@@ -147,7 +147,7 @@ $(document).ready(function () {
 
 		var media = document.getElementById("selMedia")
 		for (var i = 0; i < media.length; i++) {
-			if (media.options[i].value.replace(/\.ogg|\.mp3|\.mp4/i, "") == value)
+			if (media.options[i].value.replace(/\.ogg|\.mp3|\.mp4|\.m4a/i, "") == value)
 				$('#selMedia').val(media.options[i].value);
 		}
 	}
@@ -310,6 +310,26 @@ function PrintScriptOptions($id)
 	echo "</select>";
 }
 
+    function PrintVolumeOptions() {
+        echo "<select id=\"volume\">";
+        for ($x = 0; $x <= 100; $x += 5) {
+            echo "<option value=\"" . $x . "\">" . $x . "</option>";
+        }
+        
+        for ($x = 1; $x <= 4; $x += 1) {
+            echo "<option value=\"%2B" . $x . "\">+" . $x . "</option>";
+        }
+        for ($x = 5; $x <= 50; $x += 5) {
+            echo "<option value=\"%2B" . $x . "\">+" . $x . "</option>";
+        }
+        for ($x = 1; $x <= 4; $x += 1) {
+            echo "<option value=\"-" . $x . "\">-" . $x . "</option>";
+        }
+        for ($x = 5; $x <= 50; $x += 5) {
+            echo "<option value=\"-" . $x . "\">-" . $x . "</option>";
+        }
+        echo "</select>";
+    }
   function PrintEventOptions()
   {
     global $eventDirectory;
@@ -392,6 +412,7 @@ function PrintScriptOptions($id)
             <option value = 'event'>Event</option>
             <option value = 'mqtt'>MQTT</option>
             <option value = 'pause'>Pause</option>
+            <option value = 'volume'>Volume</option>
             <option value = 'plugin'>Plugin</option>
             <option value = 'script'>Script</option>
             <option value = 'url'>URL</option>
@@ -409,6 +430,8 @@ function PrintScriptOptions($id)
         <tr id="pauseTime" style="display:none;" class='playlistOptions'><td><div><div id='pauseText' class='playlistOptions'>Pause Time:</div><div id='delayText' class='playlistOptions'>Delayed By:</div></div></td>
             <td><input id="txtPause" name="txtPause" type="text" size="10" maxlength="10"/>
               (Seconds)</td></tr>
+        <tr id="volumeOptions" style="display:none;" class='playlistOptions'><td>Volume:</td>
+            <td><?php PrintVolumeOptions();?></td></tr>
 		<tr id="branchOptions" class='playlistOptions'><td valign='top'>Branch:</td>
 			<td><table border=0 cellpadding=0 cellspacing=2>
 				<tr><td>True:</td><td>Section: <select id='branchTrueSection'>
@@ -465,7 +488,7 @@ function PrintScriptOptions($id)
 				</table>
 			</td>
 			</tr>
-		<tr id="urlOptions" class='playlistOptions'><td>Dynamic:</td>
+		<tr id="urlOptions" class='playlistOptions'><td>URL:</td>
 			<td><table border=0 cellpadding=0 cellspacing=2>
 				<tr><td>URL:</td><td><input id='url' type='text' size='60' maxlength='255' placeholder='http://hostname/path'></td></tr>
 				<tr><td>Method:</td><td><select id='urlMethod'><option value='GET'>GET</option><option value='POST'>POST</option></select></td></tr>

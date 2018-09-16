@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html>
 <?php
 require_once('config.php');
 require_once('common.php');
@@ -54,7 +56,6 @@ else
 
 ?>
 
-<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <?php include 'common/menuHead.inc'; ?>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -213,7 +214,7 @@ function UpdateStartEndFromModel()
 
 		var postData = "command=setTestMode&data=" + JSON.stringify(data);
 
-		$.post("fppjson.php", postData).success(function(data) {
+		$.post("fppjson.php", postData).done(function(data) {
 			SetTestMode();
 //			$.jGrowl("Test Mode Disabled");
 		}).fail(function(data) {
@@ -293,7 +294,7 @@ function SetTestMode()
 	var startChannel = parseInt($('#testModeStartChannel').val());
 	var endChannel = parseInt($('#testModeEndChannel').val());
 	var chaseSize = parseInt($('#testModeChaseSize').val());
-	var maxChannel = 524288;
+	var maxChannel = 1048576;
 	var channelSetType = "channelRange";
 	var colorOrder = $('#colorOrder').val();
 
@@ -434,7 +435,7 @@ function SetTestMode()
 
 		var postData = "command=setTestMode&data=" + JSON.stringify(data);
 
-		$.post("fppjson.php", postData).success(function(data) {
+		$.post("fppjson.php", postData).done(function(data) {
 //			$.jGrowl("Test Mode Set");
 		}).fail(function(data) {
 			DialogError("Failed to set Test Mode", "Setup failed");
@@ -479,7 +480,7 @@ function PlaySequence()
 	var startSecond = $('#startSecond').val();
 
 	$.get("fppjson.php?command=startSequence&sequence=" + sequence + "&startSecond=" + startSecond
-	).success(function() {
+	).done(function() {
 		$.jGrowl("Started sequence " + sequence);
 		//$('#playSequence').hide();
 		//$('#stopSequence').show();
@@ -491,7 +492,7 @@ function PlaySequence()
 function StopSequence()
 {
 	$.get("fppjson.php?command=stopSequence"
-	).success(function() {
+	).done(function() {
 		$.jGrowl("Stopped sequence");
 		//$('#stopSequence').hide();
 		//$('#playSequence').show();
@@ -646,7 +647,7 @@ $(document).ready(function(){
 -->
 					</tr>
 				<tr><td>Start Channel:</td>
-						<td><input type='text' size='6' maxlength='6' value='1' id='testModeStartChannel' onChange='SetTestMode();' onkeypress='this.onchange();' onpaste='this.onchange();' oninput='this.onchange();'> (1-524288)</td>
+						<td><input type='text' size='6' maxlength='6' value='1' id='testModeStartChannel' onChange='SetTestMode();' onkeypress='this.onchange();' onpaste='this.onchange();' oninput='this.onchange();'> (1-1048576)</td>
 <!--
 						<td>Universe Size:</td>
 						<td><input type='text' size=4 maxlength=4 value='512' id='testUniverseSize'></td>
@@ -655,7 +656,7 @@ $(document).ready(function(){
 						<td>Model Name:</td>
 						<td>
 							<select onChange='UpdateStartEndFromModel();' id='modelName'>
-								<option value='1,524288'>-- All Channels --</option>
+								<option value='1,1048576'>-- All Channels --</option>
 <?
 
 $f = fopen($settings['channelMemoryMapsFile'], "r");
@@ -684,7 +685,7 @@ else
 							</td>
 						</tr>
 				<tr><td>End Channel:</td>
-						<td><input type='text' size='6' maxlength='6' value='524288' id='testModeEndChannel' onChange='SetTestMode();' onkeypress='this.onchange();' onpaste='this.onchange();' oninput='this.onchange();'> (1-524288)</td>
+						<td><input type='text' size='6' maxlength='6' value='1048576' id='testModeEndChannel' onChange='SetTestMode();' onkeypress='this.onchange();' onpaste='this.onchange();' oninput='this.onchange();'> (1-1048576)</td>
 <!--
 						<td>Universe #:</td>
 						<td><input type='text' size=5 maxlength=5 value='1' id='testUniverseNumber'></td>
