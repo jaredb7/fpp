@@ -1929,8 +1929,8 @@ function SetInterfaceInfo()
 	if (substr($data['INTERFACE'], 0, 4) == "wlan")
 	{
 		fprintf($f,
-			"SSID='%s'\n" .
-			"PSK='%s'\n" .
+			"SSID=\"%s\"\n" .
+			"PSK=\"%s\"\n" .
             "HIDDEN=%s\n",
 			$data['SSID'], $data['PSK'], $data['Hidden']);
 	}
