@@ -59,6 +59,8 @@ $command_array = Array(
 	"isFPPDrunning" => 'IsFPPDrunning',
 	"getFPPstatus" => 'GetFPPstatus',
 	"stopGracefully" => 'StopGracefully',
+    "playlistNextEntry" => 'PlaylistNextEntry',
+    "playlistPrevEntry" => 'PlaylistPrevEntry',
 	"stopNow" => 'StopNow',
 	"stopFPPD" => 'StopFPPD',
 	"startFPPD" => 'StartFPPD',
@@ -92,7 +94,6 @@ $command_array = Array(
 	"saveUSBDongle" => 'SaveUSBDongle',
 	"getInterfaceInfo" => 'GetInterfaceInfo',
 	"setPiLCDenabled" => 'SetPiLCDenabled',
-    "setBBBTether" => 'SetBBBTether',
 	"setupExtGPIO" => 'SetupExtGPIO',
 	"extGPIO" => 'ExtGPIO'
 );
@@ -262,7 +263,7 @@ function SetVolume()
 	}
 	else
 	{
-		exec($SUDO . " grep card /root/.asoundrc | head -n 1 | cut -d' ' -f 2", $output, $return_val);
+		exec($SUDO . " grep card /root/.asoundrc | head -n 1 | awk '{print $2}'", $output, $return_val);
 		if ( $return_val )
 		{
 			// Should we error here, or just move on?
@@ -276,8 +277,6 @@ function SetVolume()
 		WriteSettingToFile("AudioOutput", $card);
 	}
 
-	if ( $card == 0 )
-		$vol = 50 + ($vol/2.0);
 
 	$mixerDevice = "PCM";
 	if (isset($settings['AudioMixerDevice']))
@@ -292,29 +291,14 @@ function SetVolume()
 		WriteSettingToFile("AudioMixerDevice", $mixerDevice);
 	}
 
+    if ( $card == 0 && $settings['Platform'] == "Raspberry Pi" && $settings['AudioCard0Type'] == "bcm2") {
+        $vol = 50 + ($vol/2.0);
+    }
+
 	// Why do we do this here and in fppd's settings.c
 	$status=exec($SUDO . " amixer -c $card set $mixerDevice -- " . $vol . "%");
 
 	EchoStatusXML($status);
-}
-
-function SetBBBTether()
-{
-    global $SUDO;
-    
-    $enabled = $_GET['enabled'];
-    check($enabled, "enabled", __FUNCTION__);
-    
-    if ($enabled == "true")
-    {
-        $status = exec($SUDO . " sed -i -e \"s/TETHER_ENABLED=.*/TETHER_ENABLED=yes/\" /etc/default/bb-wl18xx");
-    }
-    else
-    {
-        $status = exec($SUDO . " sed -i -e \"s/TETHER_ENABLED=.*/TETHER_ENABLED=no/\" /etc/default/bb-wl18xx");
-    }
-    
-    EchoStatusXML($status);
 }
 
 function SetPiLCDenabled()
@@ -477,7 +461,7 @@ function MoveFile()
 				error_log("Couldn't move effect file");
 				exit(1);
 			}
-		} else if (preg_match("/\.(mp4|mkv|avi)$/i", $file)) {
+		} else if (preg_match("/\.(mp4|mkv|avi|mov|mpg|mpeg)$/i", $file)) {
 			if ( !rename($uploadDirectory."/" . $file, $videoDirectory . '/' . $file) ) {
 				error_log("Couldn't move video file");
 				exit(1);
@@ -497,7 +481,7 @@ function MoveFile()
 				error_log("Couldn't move script file");
 				exit(1);
 			}
-        } else if (preg_match("/\.(mp3|ogg|m4a)$/i", $file)) {
+        } else if (preg_match("/\.(mp3|ogg|m4a|wav|au|m4p|wma)$/i", $file)) {
 			if ( !rename($uploadDirectory."/" . $file, $musicDirectory . '/' . $file) ) {
 				error_log("Couldn't move music file");
 				exit(1);
@@ -750,6 +734,16 @@ function StopGracefully()
 {
 	$status=SendCommand('S');
 	EchoStatusXML('true');
+}
+function PlaylistNextEntry()
+{
+    $status=SendCommand('NextPlaylistItem');
+    EchoStatusXML('true');
+}
+function PlaylistPrevEntry()
+{
+    $status=SendCommand('PrevPlaylistItem');
+    EchoStatusXML('true');
 }
 
 function StopNow()
@@ -2332,8 +2326,20 @@ function GetFile()
 			header('Content-type: audio/ogg');
         else if (preg_match('/m4a$/i', $filename))
             header('Content-type: audio/m4a');
+        else if (preg_match('/mov$/i', $filename))
+            header('Content-type: video/mov');
 		else if (preg_match('/mp4$/i', $filename))
 			header('Content-type: video/mp4');
+		else if (preg_match('/wav$/i', $filename))
+			header('Content-type: audio/wav');
+		else if (preg_match('/mpg$/i', $filename))
+			header('Content-type: video/mpg');
+        else if (preg_match('/mpg$/i', $filename))
+            header('Content-type: video/mpeg');
+        else if (preg_match('/mkv$/i', $filename))
+            header('Content-type: video/mkv');
+        else if (preg_match('/avi$/i', $filename))
+            header('Content-type: video/avi');
 	}
 	else if ($isImage)
 	{

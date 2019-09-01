@@ -5,8 +5,6 @@ $skipJSsettings = 1;
 require_once '../config.php';
 require_once '../common.php';
 
-send_header("Access-Control-Allow-Origin: *");
-
 dispatch_get   ('/help', 'help_help');
 
 dispatch_get   ('/configfile', 'GetConfigFileList');
@@ -35,6 +33,10 @@ dispatch_post  ('/sequence/:SequenceName', 'PostSequence');
 dispatch_delete('/sequence/:SequenceName', 'DeleteSequence');
 
 dispatch_get   ('/cape', 'GetCapeInfo');
+
+dispatch_get   ('/proxies', 'GetProxies');
+dispatch_post  ('/proxies/:ProxyIp', 'AddProxy');
+dispatch_delete('/proxies/:ProxyIp', 'DeleteProxy');
 
 
 run();

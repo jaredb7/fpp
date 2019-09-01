@@ -14,9 +14,11 @@ public:
         TWO_COLOR
     };
     static void SetOLEDType(OLEDType tp) { oledType = tp; }
+    static OLEDType GetOLEDType() { return oledType; }
     static void SetOLEDOrientationFlipped(bool b) { oledFlipped = b; }
     static OLEDPage *GetCurrentPage() { return currentPage; }
     static void SetCurrentPage(OLEDPage *p);
+    static void SetForcedOff(bool b) {oledForcedOff = b;};
     
     OLEDPage() : autoDeleteOnHide(false) {}
     virtual ~OLEDPage() {}
@@ -36,6 +38,7 @@ protected:
     static OLEDType oledType;
     static bool oledFlipped;
     static OLEDPage *currentPage;
+    static bool oledForcedOff;
     
     bool autoDeleteOnHide;
 };
@@ -101,7 +104,7 @@ public:
     virtual void displaying() override;
     virtual bool doAction(const std::string &action) override;
     
-    virtual bool itemSelected(const std::string &item);
+    virtual void itemSelected(const std::string &item);
 protected:
     virtual void display();
     int curSelected;

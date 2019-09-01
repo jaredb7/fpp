@@ -34,6 +34,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <vector>
+#include <jsoncpp/json/json.h>
 
 #define FALCON_TOPIC "falcon/player"
 
@@ -87,6 +88,12 @@ MosquittoClient::MosquittoClient(const std::string &host, const int port,
 	m_topicPlaylist = m_baseTopic + "/set/playlist/#";
 
 	pthread_mutex_init(&m_mosqLock, NULL);
+
+	// create  background Publish Thread
+	int result = pthread_create(&m_mqtt_publish_t, NULL, &RunMqttPublishThread, (void*) this);
+	if (result != 0) {
+		LogErr(VB_CONTROL, "Unable to create background Publish thread. rc=%d", result);
+	}
 }
 
 /*
@@ -183,7 +190,7 @@ int MosquittoClient::Init(const std::string &username, const std::string &passwo
 		return 0;
 	}
 
-        LogInfo(VB_CONTROL, "MQTT Sucessfully Connected\n");
+    LogInfo(VB_CONTROL, "MQTT Sucessfully Connected\n");
 	return 1;
 }
 
@@ -247,6 +254,17 @@ void MosquittoClient::LogCallback(void *userdata, int level, const char *str)
 	}
 }
 
+void MosquittoClient::AddCallback(const std::string &topic, std::function<void(const std::string &topic, const std::string &payload)> &callback) {
+    callbacks[topic] = callback;
+    
+    std::string tp = m_baseTopic + topic;
+    int rc = mosquitto_subscribe(m_mosq, NULL, tp.c_str(), 0);
+    if (rc != MOSQ_ERR_SUCCESS) {
+        LogErr(VB_CONTROL, "Error, unable to subscribe to %s: %d\n", tp.c_str(), rc);
+    }
+}
+
+
 /*
  *
  */
@@ -268,9 +286,18 @@ void MosquittoClient::MessageCallback(void *obj, const struct mosquitto_message 
 
 	// If not our base, then return.
 	// Would only happen if subscribe is wrong
-        if (topic.find(m_baseTopic) != 0) {
+    if (topic.find(m_baseTopic) != 0) {
 		return;
 	}
+    
+    for (auto &a : callbacks) {
+        std::string s = m_baseTopic + a.first;
+        mosquitto_topic_matches_sub(s.c_str(), message->topic, &match);
+        if (match) {
+            a.second(topic, payload);
+            return;
+        }
+    }
 
 	// Normal Playlist
 	mosquitto_topic_matches_sub(m_topicPlaylist.c_str(), message->topic, &match);
@@ -334,6 +361,7 @@ void MosquittoClient::MessageCallback(void *obj, const struct mosquitto_message 
 			} else {
 				StopEffect(payload.c_str());
 			}
+
 		} else if (topic == "effect/start") {
 			StartEffect(payload.c_str(), 0);
 		}
@@ -343,4 +371,35 @@ void MosquittoClient::MessageCallback(void *obj, const struct mosquitto_message 
 
 	LogWarn(VB_CONTROL, "No match found for Mosquitto topic '%s'\n",
 		message->topic);
+}
+
+void MosquittoClient::PublishStatus(){
+	Json::Value json = playlist->GetMqttStatusJSON();
+
+	std::stringstream buffer;
+	buffer << json << std::endl;
+	Publish("playlist_details", buffer.str());
+}
+
+void *RunMqttPublishThread(void *data) {
+
+	sleep(3); // Give everything time to start up
+
+	MosquittoClient *me = (MosquittoClient *) data;
+	int frequency = atoi(getSetting("MQTTFrequency"));
+	if (frequency < 0) {
+		frequency = 0;
+	} 
+	LogWarn(VB_CONTROL, "MQTT Frequency: %d\nc", frequency);
+	if (frequency == 0) {
+		// kill thread
+		LogInfo(VB_CONTROL, "Stopping MQWTT Publish Thread as frequenzy is zero.\nc");
+	       	return 0;
+	}
+
+	// Loop for ever
+	while(true) {
+		sleep(frequency);
+		me->PublishStatus();
+	}
 }

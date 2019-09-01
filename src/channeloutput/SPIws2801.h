@@ -27,11 +27,14 @@
 #define _SPIWS2801_H
 
 #include "ThreadedChannelOutputBase.h"
+#include "util/SPIUtils.h"
 
 class SPIws2801Output : public ThreadedChannelOutputBase {
   public:
 	SPIws2801Output(unsigned int startChannel, unsigned int channelCount);
 	~SPIws2801Output();
+
+    virtual int Init(Json::Value config);
 
 	int Init(char *configStr);
 
@@ -44,6 +47,7 @@ class SPIws2801Output : public ThreadedChannelOutputBase {
     virtual void GetRequiredChannelRange(int &min, int & max);
 
   private:
+    SPIUtils       *m_spi;
 	int            m_port;
 	int            m_pi36;
 	unsigned char *m_pi36Data;

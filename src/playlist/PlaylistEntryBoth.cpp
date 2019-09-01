@@ -25,6 +25,8 @@
 
 #include "log.h"
 #include "PlaylistEntryBoth.h"
+#include "mediadetails.h"
+#include "Sequence.h"
 
 PlaylistEntryBoth::PlaylistEntryBoth(PlaylistEntryBase *parent)
   : PlaylistEntryBase(parent),
@@ -89,9 +91,10 @@ int PlaylistEntryBoth::StartPlaying(void)
     if (!m_mediaEntry) {
         LogDebug(VB_PLAYLIST, "Skipping media playlist entry, likely blacklisted audio: %s\n", m_mediaName.c_str());
     }
-
-	if (!m_sequenceEntry->StartPlaying())
-	{
+    if (!m_sequenceEntry->PreparePlay()) {
+        LogDebug(VB_PLAYLIST, "Problems starting sequence: %s\n", m_sequenceEntry->GetSequenceName().c_str());
+    }
+	if (!m_sequenceEntry->StartPlaying()) {
         if (m_mediaEntry) {
             m_mediaEntry->Stop();
         }
@@ -175,3 +178,26 @@ Json::Value PlaylistEntryBoth::GetConfig(void)
 	return result;
 }
 
+Json::Value PlaylistEntryBoth::GetMqttStatus(void)
+{
+	Json::Value result = PlaylistEntryBase::GetMqttStatus();
+    	if (m_mediaEntry) {
+        	result["secondsRemaining"] = m_mediaEntry->m_secondsRemaining;
+        	result["secondsTotal"] = m_mediaEntry->m_secondsTotal;
+        	result["secondsElapsed"] = m_mediaEntry->m_secondsElapsed;
+		result["mediaName"] = m_mediaEntry->GetMediaName();
+
+	}
+	if (m_sequenceEntry) {
+		result["sequenceName"]     = m_sequenceEntry->GetSequenceName();
+        	result["secondsRemaining"] = sequence->m_seqSecondsRemaining;
+        	result["secondsTotal"] = sequence->m_seqDuration;
+        	result["secondsElapsed"] = sequence->m_seqSecondsElapsed;
+	}
+
+    result["mediaTitle"] = MediaDetails::INSTANCE.title;
+    result["mediaArtist"] = MediaDetails::INSTANCE.artist;
+
+
+	return result;
+}

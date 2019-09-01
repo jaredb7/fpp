@@ -22,8 +22,12 @@ if (isSet($settings['cape-info'])) {
 }
 if (!isset($currentCapeInfo['provides'])) {
     $currentCapeInfo['provides'][] = "all";
-} else if ($settings["showAllOptions"] == 1) {
+    if (isset($settings['FalconHardwareDetected']) && ($settings['FalconHardwareDetected'] == 1)) {
+        $currentCapeInfo['provides'][] = "fpd";
+    }
+} else if (isset($settings["showAllOptions"]) && $settings["showAllOptions"] == 1) {
     $currentCapeInfo['provides'][] = "all";
+    $currentCapeInfo['provides'][] = "fpd";
 }
 ?>
 
@@ -76,8 +80,11 @@ function GetChannelOutputConfig()
 
 	config.channelOutputs = [];
 
-	config.channelOutputs.push(GetLEDPanelConfig());
+    var lpc = GetLEDPanelConfig();
+	config.channelOutputs.push(lpc);
 
+    channelOutputs = config;
+    UpdateChannelOutputLookup();
 	var result = JSON.stringify(config);
 	return result;
 }
@@ -244,7 +251,7 @@ tr.rowUniverseDetails td
 <?
 	if ($settings['Platform'] == "Raspberry Pi")
 	{
-        if (in_array('all', $currentCapeInfo["provides"]) || in_array('fpd', $currentCapeInfo["provides"])) {
+        if (in_array('fpd', $currentCapeInfo["provides"])) {
             echo "<li><a href='#tab-fpd'>Falcon Pixelnet/DMX</a></li>\n";
         }
         if (in_array('all', $currentCapeInfo["provides"]) || in_array('strings', $currentCapeInfo["provides"])) {
@@ -256,7 +263,7 @@ tr.rowUniverseDetails td
             echo "<li><a href='#tab-BBB48String'>BBB Strings</a></li>\n";
         }
 	}
-    if (in_array('all', $currentCapeInfo["provides"]) || in_array('panels', $currentCapeInfo["provides"])) {
+    if (in_array('all', $currentCapeInfo["provides"]) || !in_array('strings', $currentCapeInfo["provides"])) {
         echo "<li><a href='#tab-LEDPanels'>LED Panels</a></li>\n";
     }
 ?>
@@ -271,7 +278,7 @@ include_once('co-universes.php');
 
 if ($settings['Platform'] == "Raspberry Pi")
 {
-    if (in_array('all', $currentCapeInfo["provides"]) || in_array('fpd', $currentCapeInfo["provides"])) {
+    if (in_array('fpd', $currentCapeInfo["provides"])) {
         include_once('co-fpd.php');
     }
     if (in_array('all', $currentCapeInfo["provides"]) || in_array('strings', $currentCapeInfo["provides"])) {
@@ -279,7 +286,7 @@ if ($settings['Platform'] == "Raspberry Pi")
     }
 }
 
-if (in_array('all', $currentCapeInfo["provides"]) || in_array('panels', $currentCapeInfo["provides"])) {
+if (in_array('all', $currentCapeInfo["provides"]) || !in_array('strings', $currentCapeInfo["provides"])) {
     include_once('co-ledPanels.php');
 }
 

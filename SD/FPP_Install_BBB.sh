@@ -67,9 +67,9 @@
 #
 #############################################################################
 SCRIPTVER="1.0"
-FPPBRANCH="v2.2"
-FPPIMAGEVER="2.2"
-FPPCFGVER="31"
+FPPBRANCH=${FPPBRANCH:-"master"}
+FPPIMAGEVER="3.0"
+FPPCFGVER="47"
 FPPPLATFORM="UNKNOWN"
 FPPDIR=/opt/fpp
 FPPUSER=fpp
@@ -93,29 +93,36 @@ checkTimeAgainstUSNO () {
 		# allow clocks to differ by 24 hours to handle time zone differences
 		THRESHOLD=86400
 		USNOSECS=$(wget -q -O - http://www.usno.navy.mil/cgi-bin/time.pl | sed -e "s/.*\">//" -e "s/<\/t.*//" -e "s/...$//")
-		LOCALSECS=$(date +%s)
-		MINALLOW=$(expr ${USNOSECS} - ${THRESHOLD})
-		MAXALLOW=$(expr ${USNOSECS} + ${THRESHOLD})
 
-		#echo "FPP: USNO Secs  : ${USNOSECS}"
-		#echo "FPP: Local Secs : ${LOCALSECS}"
-		#echo "FPP: Min Valid  : ${MINALLOW}"
-		#echo "FPP: Max Valid  : ${MAXALLOW}"
+        if [ "x${USNOSECS}" != "x" ]
+        then
 
-		echo "FPP: USNO Time  : $(date --date=@${USNOSECS})"
-		echo "FPP: Local Time : $(date --date=@${LOCALSECS})"
+            LOCALSECS=$(date +%s)
+            MINALLOW=$(expr ${USNOSECS} - ${THRESHOLD})
+            MAXALLOW=$(expr ${USNOSECS} + ${THRESHOLD})
 
-		if [ ${LOCALSECS} -gt ${MAXALLOW} -o ${LOCALSECS} -lt ${MINALLOW} ]
-		then
-			echo "FPP: Local Time is not within 24 hours of USNO time, setting to USNO time"
-			date $(date --date="@${USNOSECS}" +%m%d%H%M%Y.%S)
+            #echo "FPP: USNO Secs  : ${USNOSECS}"
+            #echo "FPP: Local Secs : ${LOCALSECS}"
+            #echo "FPP: Min Valid  : ${MINALLOW}"
+            #echo "FPP: Max Valid  : ${MAXALLOW}"
 
-			LOCALSECS=$(date +%s)
-			echo "FPP: New Local Time: $(date --date=@${LOCALSECS})"
+            echo "FPP: USNO Time  : $(date --date=@${USNOSECS})"
+            echo "FPP: Local Time : $(date --date=@${LOCALSECS})"
+
+            if [ ${LOCALSECS} -gt ${MAXALLOW} -o ${LOCALSECS} -lt ${MINALLOW} ]
+            then
+                echo "FPP: Local Time is not within 24 hours of USNO time, setting to USNO time"
+                date $(date --date="@${USNOSECS}" +%m%d%H%M%Y.%S)
+
+                LOCALSECS=$(date +%s)
+                echo "FPP: New Local Time: $(date --date=@${LOCALSECS})"
+            else
+                echo "FPP: Local Time is OK"
+            fi
 		else
-			echo "FPP: Local Time is OK"
-		fi
-	else
+			echo "FPP: Incorrect result or timeout from query to U.S. Naval Observatory"
+        fi
+    else
 		echo "FPP: Not online, unable to check time against U.S. Naval Observatory."
 	fi
 }
@@ -318,6 +325,10 @@ cd /opt/fpp
 git checkout ${FPPBRANCH}
 
 #######################################
+# Upgrade the config if needed
+sh scripts/upgrade_config -notee
+
+#######################################
 echo "FPP - Installing PHP composer"
 cd /tmp/
 curl -sS https://getcomposer.org/installer | php
@@ -326,6 +337,9 @@ chmod 755 /usr/local/bin/composer
 
 #######################################
 PHPDIR="/etc/php/7.0"
+if [ -d "/etc/php/7.3" ]; then
+    PHPDIR="/etc/php/7.3"
+fi
 
 echo "FPP - Allowing short tags in PHP"
 FILES="cli/php.ini apache2/php.ini fpm/php.ini"
@@ -380,8 +394,18 @@ mkdir ${FPPHOME}/media
 chown ${FPPUSER}.${FPPUSER} ${FPPHOME}/media
 chmod 770 ${FPPHOME}/media
 chmod a+s ${FPPHOME}/media
+touch ${FPPHOME}/media/.auto_update_disabled
+chmod 644 ${FPPHOME}/media/.auto_update_disabled
 
-echo "set mouse=r" > ${FPPHOME}/.vimrc
+cat > ${FPPHOME}/.vimrc <<-EOF
+set tabstop=4
+set shiftwidth=4
+set autoindent
+set ignorecase
+set mouse=r
+EOF
+
+chmod 644 ${FPPHOME}/.vimrc
 chown ${FPPUSER}.${FPPUSER} ${FPPHOME}/.vimrc
 
 echo >> ${FPPHOME}/.bashrc
@@ -499,7 +523,7 @@ You can access the UI by typing "http://fpp.local/" into a web browser.[0m
 # Config fstab to mount some filesystems as tmpfs
 echo "FPP - Configuring tmpfs filesystems"
 echo "#####################################" >> /etc/fstab
-#echo "tmpfs         /var/log    tmpfs   nodev,nosuid,size=10M 0 0" >> /etc/fstab
+echo "tmpfs         /tmp        tmpfs   nodev,nosuid,size=50M 0 0" >> /etc/fstab
 echo "tmpfs         /var/tmp    tmpfs   nodev,nosuid,size=50M 0 0" >> /etc/fstab
 echo "#####################################" >> /etc/fstab
 
@@ -526,6 +550,11 @@ sed -i -e "s/Listen 8080.*/Listen 80/" /etc/apache2/ports.conf
 
 sed -e "s#FPPDIR#${FPPDIR}#g" -e "s#FPPHOME#${FPPHOME}#g" < ${FPPDIR}/etc/apache2.site > /etc/apache2/sites-enabled/000-default.conf
 
+# Enable Apache modules
+a2enmod cgi
+a2enmod rewrite
+a2enmod proxy
+a2enmod proxy_http
 
 # Fix name of Apache default error log so it gets rotated by our logrotate config
 sed -i -e "s/error\.log/apache2-base-error.log/" /etc/apache2/apache2.conf
@@ -543,9 +572,11 @@ sed -i -e "s/USE_PERSONAL_PASSWORD=.*/USE_PERSONAL_PASSWORD=Christmas/" /etc/def
 
 #######################################
 echo "FPP - Configuring FPP startup"
-cp /opt/fpp/etc/systemd/fppinit.service /lib/systemd/system/
+cp /opt/fpp/etc/systemd/*.service /lib/systemd/system/
 systemctl enable fppinit.service
-cp /opt/fpp/etc/systemd/fppd.service /lib/systemd/system/
+systemctl enable fppcapedetect.service
+systemctl enable fpprtc.service
+systemctl enable fppoled.service
 systemctl enable fppd.service
 
 systemctl enable rsync
@@ -553,6 +584,12 @@ systemctl enable rsync
 echo "FPP - Disabling services not needed/used"
 systemctl disable olad
 systemctl disable dev-hugepages.mount
+
+echo "FPP - update BBB boot scripts"
+cd /opt/scripts
+git reset --hard
+git pull
+sed -i 's/systemctl restart serial-getty/systemctl is-enabled serial-getty/g' boot/am335x_evm.sh
 
 echo "FPP - Compiling binaries"
 cd /opt/fpp/src/

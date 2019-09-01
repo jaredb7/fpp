@@ -27,11 +27,14 @@
 #define _GPIO_H
 
 #include "ChannelOutputBase.h"
+#include "util/GPIOUtils.h"
 
 class GPIOOutput : public ChannelOutputBase {
   public:
 	GPIOOutput(unsigned int startChannel, unsigned int channelCount);
 	~GPIOOutput();
+
+    virtual int Init(Json::Value config);
 
 	int Init(char *configStr);
 	int Close(void);
@@ -45,7 +48,7 @@ class GPIOOutput : public ChannelOutputBase {
     }
 
   private:
-	int m_GPIOPin;
+	const PinCapabilities * m_GPIOPin;
 	int m_invertOutput;
 	int m_softPWM;
 

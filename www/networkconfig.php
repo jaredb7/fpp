@@ -13,7 +13,7 @@ $wifiDrivers['External'] = "External";
 $wifiDrivers['Linux Kernel'] = "Kernel";
     
 $defaultWifiDrivers = "External";
-if ($settings['wifiDrivers'] == "Realtek") {
+if (isset($settings['wifiDrivers']) && $settings['wifiDrivers'] == "Realtek") {
     $settings['wifiDrivers'] == "External";
 }
     
@@ -40,6 +40,20 @@ function printTetheringSelect() {
     PrintSettingSelect("Enable Tethering", "EnableTethering", 0, 1, "0", $tetherValues);
 }
 
+function printTetheringInterfaces() {
+    $tinterfacesRaw = explode("\n",trim(shell_exec("/sbin/ifconfig -a | cut -f1 -d' ' | grep -v ^$ | grep wlan | colrm 6")));
+    $tingerfaces = Array();
+    foreach ($tinterfacesRaw as $iface) {
+        $tinterfaces[$iface] = $iface;
+        echo "<!-- $iface -->\n";
+    }
+    $tiface = ReadSettingFromFile("TetherInterface");
+    if (!isset($tiface) || $tiface == "") {
+        $tiface = "wlan0";
+    }
+    PrintSettingSelect("Tether Interface", "TetherInterface", 0, 1, $tiface, $tinterfaces);
+}
+    
 ?>
 <script>
 
@@ -528,6 +542,10 @@ if (file_exists("/etc/modprobe.d/wifi-disable-power-management.conf")) {
                 <td width = "75%"><? printTetheringSelect(); ?></td>
             </tr>
             <tr>
+                <td width = "25%">Tethering Interface:</td>
+                <td width = "75%"><? printTetheringInterfaces(); ?></td>
+            </tr>
+            <tr>
                 <td width = "25%">Tethering SSID:</td>
                 <td width = "75%"><? PrintSettingTextSaved("TetherSSID", 0, 1, 32, 32, "", "FPP"); ?></td>
             </tr>
@@ -538,12 +556,19 @@ if (file_exists("/etc/modprobe.d/wifi-disable-power-management.conf")) {
             </tr>
             </table>
                 <br>
-                <b>Warning:</b> Turning on tethering may make FPP unavailable. Many WIFI adapters do not support
-                simultaneous tethering and client modes. Having multiple WIFI adapters will work, but it's relatively
-                unpredictable as to which WIFI adapter CONNMAN will bring tethering up on. Also, enabling tethering
-                disables the automatic IP assignment on the USB0/1 interfaces on the BeagleBones and thus connecting to
-                the BeagleBone via a USB cable will require you to manually set the IP address to 192.168.6.1
-                (OSX/Linux) or 192.168.7.1 (Windows).
+                <b>Warning:</b> Turning on tethering may make FPP unavailable.   The WIFI adapter will be used for
+        tethering and will thus not be usable for normal network operations.   The WIFI tether IP address will be
+        192.168.8.1.
+<p>
+<? if ($settings['Platform'] == "BeagleBone Black") { ?>
+    On BeagleBones, USB tethering is always available.  The IP address for USB tethering would be 192.168.6.2
+        (OSX/Linux) or 192.168.7.2 (Windows).
+<? } ?>
+<? if ($settings['Platform'] == "Raspberry Pi") { ?>
+    On the Pi Zero, Pi Zero W, and the Pi 3A devices, USB tethering is available if using an appropriate USB cable plugged 
+into the USB port, not the power-only port.  Don't plug anything into the power port for this.  The IP address for USB tethering would be 192.168.7.2.
+<? } ?>
+
             </fieldset>
             <br>
 

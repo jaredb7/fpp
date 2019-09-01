@@ -13,6 +13,9 @@
 #include <string>
 #include <algorithm>
 
+#include <sys/mman.h>
+#include <fcntl.h>
+
 #include <fcntl.h>
 #include <poll.h>
 
@@ -21,7 +24,7 @@
 #include "SSD1306_OLED.h"
 
 #include "FPPOLEDUtils.h"
-#include "channeloutput/BBBUtils.h"
+#include "util/BBBUtils.h"
 
 #include <linux/wireless.h>
 #include <sys/ioctl.h>
@@ -31,17 +34,38 @@
 #include "OLEDPages.h"
 #include "FPPStatusOLEDPage.h"
 
-#ifdef USEWIRINGPI
-#   include "wiringPi.h"
-#endif
+
+//shared memory area so other processes can see if the display is on
+//as well as let fppoled know to force it off (if the pins need to be
+//reconfigured so I2C no longer will work)
+
+struct DisplayStatus {
+    unsigned int i2cBus;
+    volatile unsigned int displayOn;
+    volatile unsigned int forceOff;
+};
+static DisplayStatus *currentStatus;
+
+extern I2C_DeviceT I2C_DEV_2;
+
+
 
 FPPOLEDUtils::FPPOLEDUtils(int ledType)
-    : _ledType(ledType), _displayOn(true) {
-    
+    : _ledType(ledType)
+{
+    int smfd = shm_open("fppoled", O_CREAT | O_RDWR, 0);
+    ftruncate(smfd, 1024);
+    currentStatus = (DisplayStatus *)mmap(0, 1024, PROT_WRITE | PROT_READ, MAP_SHARED, smfd, 0);
+    close(smfd);
+    int i2cb = I2C_DEV_2.i2c_dev_path[strlen(I2C_DEV_2.i2c_dev_path) - 1] - '0';
+    currentStatus->i2cBus = i2cb;
+    currentStatus->displayOn = true;
+    currentStatus->forceOff = false;
+
     for (auto &a : gpiodChips) {
         a = nullptr;
     }
-    if (_ledType == 2 || _ledType == 4 || _ledType == 6 || _ledType == 8) {
+    if (_ledType == 2 || _ledType == 4 || _ledType == 6 || _ledType == 8 || _ledType == 10) {
         setRotation(2);
     } else if (_ledType) {
         setRotation(0);
@@ -102,9 +126,6 @@ bool FPPOLEDUtils::checkStatusAbility() {
             if (root["id"].asString() == "Unsupported") {
                 return false;
             }
-            if (root["verifiedKeyId"].asString() == "dk") {
-                return true;
-            }
         }
     }
     return false;
@@ -115,9 +136,6 @@ bool FPPOLEDUtils::checkStatusAbility() {
 
 
 bool FPPOLEDUtils::parseInputActions(const std::string &file) {
-#ifdef USEWIRINGPI
-    wiringPiSetupGpio();
-#endif
     char vbuffer[256];
     bool needsPolling = false;
     if (FileExists(file)) {
@@ -138,29 +156,16 @@ bool FPPOLEDUtils::parseInputActions(const std::string &file) {
                     std::string buttonaction = root["inputs"][x]["type"].asString();
                     std::string edge = root["inputs"][x]["edge"].asString();
                     int actionValue = (edge == "falling" ? 0 : 1);
-                    printf("Configuring pin %s as input of type %s   (mode: %s)\n", action.pin.c_str(), buttonaction.c_str(), action.mode.c_str());
-#if defined(PLATFORM_BBB)
-                    const PinCapabilities &pin = getBBBPinByName(action.pin).configPin(action.mode, "in");
-                    if (!gpiodChips[pin.gpio]) {
-                        gpiodChips[pin.gpio] = gpiod_chip_open_by_number(pin.gpio);
+                    const PinCapabilities &pin = PinCapabilities::getPinByName(action.pin);
+                    printf("Configuring pin %s as input of type %s   (mode: %s, gpio: %d)\n", action.pin.c_str(), buttonaction.c_str(), action.mode.c_str(), pin.kernelGpio);
+
+                    pin.configPin(action.mode, false);
+                    if (!gpiodChips[pin.gpioIdx]) {
+                        gpiodChips[pin.gpioIdx] = gpiod_chip_open_by_number(pin.gpioIdx);
                     }
                     
-                    action.gpiodLine = gpiod_chip_get_line(gpiodChips[pin.gpio], pin.pin);
-#elif defined(PLATFORM_PI)
-                    if (!gpiodChips[0]) {
-                        gpiodChips[0] = gpiod_chip_open_by_number(0);
-                    }
-                    int p1pin = std::stoi(action.pin.substr(3));
-                    int pin = physPinToGpio(p1pin);
-                    if (action.mode == "gpio_pu") {
-                        pullUpDnControl(pin, PUD_UP);
-                    } else if (action.mode == "gpio_pd") {
-                        pullUpDnControl(pin, PUD_DOWN);
-                    } else {
-                        pullUpDnControl(pin, PUD_OFF);
-                    }
-                    action.gpiodLine = gpiod_chip_get_line(gpiodChips[0], pin);
-#endif
+                    action.gpiodLine = gpiod_chip_get_line(gpiodChips[pin.gpioIdx], pin.gpio);
+
                     struct gpiod_line_request_config lineConfig;
                     lineConfig.consumer = "FPPOLED";
                     lineConfig.request_type = GPIOD_LINE_REQUEST_DIRECTION_INPUT;
@@ -226,7 +231,7 @@ void FPPOLEDUtils::run() {
     } else {
         OLEDPage::SetOLEDType(OLEDPage::OLEDType::SINGLE_COLOR);
     }
-    if (_ledType == 2 || _ledType == 4 || _ledType == 6 || _ledType == 8) {
+    if (_ledType == 2 || _ledType == 4 || _ledType == 6 || _ledType == 8 || _ledType == 10) {
         OLEDPage::SetOLEDOrientationFlipped(true);
     }
     statusPage = new FPPStatusOLEDPage();
@@ -239,11 +244,23 @@ void FPPOLEDUtils::run() {
     long long ntime = GetTime();
     long long lastActionTime = GetTime();
     while (true) {
+        bool forcedOff = currentStatus->forceOff;
+        OLEDPage::SetForcedOff(forcedOff);
+        if (currentStatus->displayOn && forcedOff) {
+            if (OLEDPage::GetOLEDType() != OLEDPage::OLEDType::NONE) {
+                clearDisplay();
+                Display();
+            }
+	    currentStatus->displayOn = false;
+            OLEDPage::SetCurrentPage(statusPage);
+        }
         if (ntime > (lastUpdateTime + 1000000)) {
+            bool displayOn = currentStatus->displayOn;
             if (OLEDPage::GetCurrentPage()
-                && OLEDPage::GetCurrentPage()->doIteration(_displayOn)) {
+                && OLEDPage::GetCurrentPage()->doIteration(displayOn)) {
                 lastActionTime = GetTime();
             }
+            currentStatus->displayOn = displayOn;
             lastUpdateTime = ntime;
         }
         if (actions.empty()) {
@@ -251,35 +268,46 @@ void FPPOLEDUtils::run() {
             ntime = GetTime();
         } else {
             memset((void*)&fdset[0], 0, sizeof(struct pollfd) * actions.size());
+            int actionCount = 0;
             for (int x = 0; x < actions.size(); x++) {
-                fdset[x].fd = actions[x].file;
-                fdset[x].events = POLLIN | POLLPRI;
+                if (actions[x].mode != "ain") {
+                    fdset[actionCount].fd = actions[x].file;
+                    fdset[actionCount].events = POLLIN | POLLPRI;
+                    actions[x].pollIndex = actionCount;
+                    actionCount++;
+                }
             }
 
-            int rc = poll(&fdset[0], actions.size(), needsPolling ? 100 : 1000);
+            if (actionCount) {
+                poll(&fdset[0], actionCount, needsPolling ? 100 : 1000);
+            } else {
+                usleep(100000);
+            }
             ntime = GetTime();
             
             for (int x = 0; x < actions.size(); x++) {
                 std::string action;
-                if (fdset[x].revents) {
+                if (actions[x].mode == "ain") {
+                    lseek(actions[x].file, 0, SEEK_SET);
+                    int len = read(actions[x].file, vbuffer, 255);
+                    int v = atoi(vbuffer);
+                    action = actions[x].checkAction(v, ntime);
+                } else if (fdset[actions[x].pollIndex].revents) {
                     struct gpiod_line_event event;
-                    if (gpiod_line_event_read_fd(fdset[x].fd, &event) >= 0) {
+                    if (gpiod_line_event_read_fd(fdset[actions[x].pollIndex].fd, &event) >= 0) {
                         int v = gpiod_line_get_value(actions[x].gpiodLine);
                         action = actions[x].checkAction(v, ntime);
                     }
-                } else if (actions[x].mode == "ain") {
-                    lseek(fdset[x].fd, 0, SEEK_SET);
-                    int len = read(fdset[x].fd, vbuffer, 255);
-                    int v = atoi(vbuffer);
-                    action = actions[x].checkAction(v, ntime);
                 }
-                if (action != "" && !_displayOn) {
+                if (action != "" && !currentStatus->displayOn) {
                     //just turn the display on if button is hit
-                    _displayOn = true;
+                    if (!currentStatus->forceOff) {
+                        currentStatus->displayOn = true;
+                    }
                     OLEDPage::SetCurrentPage(statusPage);
                     lastUpdateTime = 0;
                     lastActionTime = ntime;
-                } else if (action != "") {
+                } else if (action != "" && ((ntime - lastActionTime) > 70000)) { //account for some debounce time
                     printf("Action: %s\n", action.c_str());
                     //force immediate update
                     lastUpdateTime = 0;
@@ -289,11 +317,11 @@ void FPPOLEDUtils::run() {
                     }
                 }
             }
-            if (ntime > (lastActionTime + 120000000)) {
+            if (ntime > (lastActionTime + 180000000)) {
                 if (OLEDPage::GetCurrentPage() != statusPage) {
                     OLEDPage::SetCurrentPage(statusPage);
                 }
-                _displayOn = false;
+                currentStatus->displayOn = false;
             }
         }
     }

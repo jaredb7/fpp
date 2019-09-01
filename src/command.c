@@ -30,16 +30,16 @@
 #include "command.h"
 #include "Scheduler.h"
 #include "e131bridge.h"
-#include "mediaoutput.h"
+#include "mediaoutput/mediaoutput.h"
 #include "settings.h"
 #include "Sequence.h"
 #include "effects.h"
 #include "playlist/Playlist.h"
 #include "Plugins.h"
-#include "FPD.h"
 #include "events.h"
-#include "channeloutput.h"
-#include "E131.h"
+#include "channeloutput/FPD.h"
+#include "channeloutput/channeloutput.h"
+#include "channeloutput/E131.h"
 #include "gpio.h"
 
 #include <sys/socket.h>
@@ -56,7 +56,6 @@
 
 #include <jsoncpp/json/json.h>
 
-extern PluginCallbackManager pluginCallbackManager;
 
  int socket_fd;
  struct sockaddr_un server_address;
@@ -88,6 +87,7 @@ static void exit_handler(int signum)
      }
 
      mkdir(FPP_SOCKET_PATH, 0777);
+     chmod(FPP_SOCKET_PATH, 0777);
      
      fcntl(socket_fd, F_SETFL, O_NONBLOCK);
      memset(&server_address, 0, sizeof(server_address));
@@ -144,7 +144,7 @@ char *ProcessCommand(char *command, char *response)
                 char mediaFilename[1024];
 
                 if (sequence->IsSequenceRunning()) {
-                    strcpy(seqFilename, sequence->m_seqFilename);
+                    strcpy(seqFilename, sequence->m_seqFilename.c_str());
                     secsElapsed = sequence->m_seqSecondsElapsed;
                     secsRemaining = sequence->m_seqSecondsRemaining;
                 } else {
@@ -333,17 +333,17 @@ char *ProcessCommand(char *command, char *response)
     } else if (!strcmp(CommandStr, "t")) {
         // Trigger an event
         s = strtok(NULL,",");
-        pluginCallbackManager.eventCallback(s, "command");
+        PluginManager::INSTANCE.eventCallback(s, "command");
         i = TriggerEventByID(s);
         if (i >= 0)
             sprintf(response,"%d,%d,Event Triggered,%d,,,,,,,,,\n",getFPPmode(),COMMAND_SUCCESS,i);
         else
             sprintf(response,"%d,%d,Event Failed,,,,,,,,,,\n",getFPPmode(),COMMAND_FAILED);
     } else if (!strcmp(CommandStr, "GetTestMode")) {
-        strcpy(response, channelTester->GetConfig().c_str());
+        strcpy(response, ChannelTester::INSTANCE.GetConfig().c_str());
         strcat(response, "\n");
     } else if (!strcmp(CommandStr, "SetTestMode")) {
-        if (channelTester->SetupTest(std::string(s + strlen(s) + 1)))
+        if (ChannelTester::INSTANCE.SetupTest(std::string(s + strlen(s) + 1)))
         {
             sprintf(response, "0,%d,Test Mode Activated,,,,,,,,,\n",
                 COMMAND_SUCCESS);
@@ -412,6 +412,7 @@ char *ProcessCommand(char *command, char *response)
             if (s && s2) {
                 i = atoi(s2);
                 sequence->OpenSequenceFile(s, 0, i);
+                sequence->StartSequence();
             } else {
                 LogDebug(VB_COMMAND, "Invalid command: %s\n", command);
             }

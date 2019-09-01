@@ -23,8 +23,8 @@
  *   along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "channeloutput.h"
-#include "channeloutputthread.h"
+#include "channeloutput/channeloutput.h"
+#include "channeloutput/channeloutputthread.h"
 #include "command.h"
 #include "common.h"
 #include "e131bridge.h"
@@ -37,10 +37,9 @@
 #include "log.h"
 #include "MultiSync.h"
 #include "mediadetails.h"
-#include "mediaoutput.h"
+#include "mediaoutput/mediaoutput.h"
 #include "mqtt.h"
 #include "PixelOverlay.h"
-#include "Playlist.h"
 #include "playlist/Playlist.h"
 #include "Plugins.h"
 #include "Scheduler.h"
@@ -67,28 +66,16 @@
 
 #include "channeloutput/FPD.h"
 #include "falcon.h"
-#include "mediaoutput.h"
 #include "fppd.h"
 #include <getopt.h>
 #include "sensors/Sensors.h"
+#include "util/GPIOUtils.h"
 
 #include <curl/curl.h>
 
-#ifdef USEWIRINGPI
-#   include <wiringPi.h>
-#   include <piFace.h>
-#else
-#   define wiringPiSetupSys()       0
-#   define wiringPiSetupGpio()      0
-#   define piFaceSetup(x)
-#endif
 
 pid_t pid, sid;
-int FPPstatus=FPP_STATUS_IDLE;
 volatile int runMainFPPDLoop = 1;
-extern PluginCallbackManager pluginCallbackManager;
-
-ChannelTester *channelTester = NULL;
 
 /* Prototypes for functions below */
 void MainLoop(void);
@@ -237,6 +224,7 @@ printf("Usage: %s [OPTION...]\n"
 "  -l, --log-file FILENAME       - Set the log file\n"
 "  -b, --bytes-file FILENAME     - Set the bytes received file\n"
 "  -H  --detect-hardware         - Detect Falcon hardware on SPI port\n"
+"      --detect-piface           - Detect PiFace hardware on SPI port\n"
 "  -C  --configure-hardware      - Configured detected Falcon hardware on SPI\n"
 "  -h, --help                    - This menu.\n"
 "      --log-level LEVEL         - Set the log output level:\n"
@@ -297,6 +285,7 @@ int parseArguments(int argc, char **argv)
 			{"log-file",			required_argument,	0, 'l'},
 			{"bytes-file",			required_argument,	0, 'b'},
 			{"detect-hardware",		no_argument,		0, 'H'},
+			{"detect-piface",		no_argument,		0, 4},
 			{"configure-hardware",		no_argument,		0, 'C'},
 			{"help",				no_argument,		0, 'h'},
 			{"silence-music",		required_argument,	0,	1 },
@@ -329,6 +318,14 @@ int parseArguments(int argc, char **argv)
 					LogInfo(VB_SETTING, "Log Mask set to %d (%s)\n", logMask, optarg);
 				}
 				break;
+            case 4: // detect-piface
+                if (PinCapabilities::getPinByGPIO(200).ptr()) {
+                    printf("PiFace found\n");
+                    exit(1);
+                } else {
+                    exit(0);
+                }
+                break;
 			case 'c': //config-file
 				if (FileExists(optarg))
 				{
@@ -445,7 +442,6 @@ int main(int argc, char *argv[])
 {
     setupExceptionHandlers();
 	initSettings(argc, argv);
-	initMediaDetails();
 
 	if (DirectoryExists("/home/fpp"))
 		loadSettings("/home/fpp/media/settings");
@@ -455,12 +451,11 @@ int main(int argc, char *argv[])
 	curl_global_init(CURL_GLOBAL_ALL);
 
 	Magick::InitializeMagick(NULL);
+    PinCapabilities::InitGPIO();
 
-	wiringPiSetupGpio(); // would prefer wiringPiSetupSys();
-	// NOTE: wiringPISetupSys() is not fast enough for SoftPWM on GPIO output
+    // Parse our arguments first, override any defaults
+    parseArguments(argc, argv);
 
-	// Parse our arguments first, override any defaults
-	parseArguments(argc, argv);
 
 	if (loggingToFile())
 		logVersionInfo();
@@ -485,25 +480,15 @@ int main(int argc, char *argv[])
 	scheduler = new Scheduler();
 	playlist = new Playlist();
 	sequence  = new Sequence();
-	channelTester = new ChannelTester();
 	multiSync = new MultiSync();
 
 	if (!multiSync->Init())
 		exit(EXIT_FAILURE);
     
+    Sensors::INSTANCE.Init();
     initCape();
 
-    int fd = -1;
-    if ((fd = open ("/dev/spidev0.0", O_RDWR)) < 0) {
-        LogWarn(VB_GENERAL, "Could not open SPI device.  Skipping piFace setup.\n");
-    } else {
-        close(fd);
-        piFaceSetup(200); // PiFace inputs 1-8 == wiringPi 200-207
-    }
-
-	SetupGPIOInput();
-
-	pluginCallbackManager.init();
+	PluginManager::INSTANCE.init();
 
 	CheckExistanceOfDirectoriesAndFiles();
     if(!FileExists(getPixelnetFile())) {
@@ -536,15 +521,16 @@ int main(int argc, char *argv[])
 	{
 		CloseEffects();
 	}
+    CleanupGPIOInput();
 
 	CloseChannelOutputs();
 
 	delete multiSync;
-	delete channelTester;
 	delete scheduler;
 	delete playlist;
 	delete sequence;
     runMainFPPDLoop = -1;
+    Sensors::INSTANCE.Close();
 
 	if (mqtt)
 		delete mqtt;
@@ -572,10 +558,13 @@ void MainLoop(void)
 	fd_set         read_fd_set;
 	struct timeval timeout;
 	int            selectResult;
+    std::map<int, std::function<bool(int)>> callbacks;
 
 	LogDebug(VB_GENERAL, "MainLoop()\n");
 
 	FD_ZERO (&active_fd_set);
+    
+    SetupGPIOInput(callbacks);
 
 	commandSock = Command_Initialize();
 	if (commandSock)
@@ -592,15 +581,20 @@ void MainLoop(void)
 		Bridge_Initialize(bridgeSock, ddpSock);
 		if (bridgeSock)
 			FD_SET (bridgeSock, &active_fd_set);
-                if (ddpSock)
-                    FD_SET (ddpSock, &active_fd_set);
+        if (ddpSock)
+            FD_SET (ddpSock, &active_fd_set);
 	}
 
 	controlSock = multiSync->GetControlSocket();
 	FD_SET (controlSock, &active_fd_set);
 
-	APIServer apiServer;
-	apiServer.Init();
+    APIServer apiServer;
+    apiServer.Init();
+
+    PluginManager::INSTANCE.addControlCallbacks(callbacks);
+    for (auto &a : callbacks) {
+        FD_SET(a.first, &active_fd_set);
+    }
 
 	multiSync->Discover();
 
@@ -634,21 +628,25 @@ void MainLoop(void)
         bool pushBridgeData = false;
 		if (commandSock && FD_ISSET(commandSock, &read_fd_set))
 			CommandProc();
-
 		if (bridgeSock && FD_ISSET(bridgeSock, &read_fd_set))
  			pushBridgeData |= Bridge_ReceiveE131Data();
         if (ddpSock && FD_ISSET(ddpSock, &read_fd_set))
             pushBridgeData |= Bridge_ReceiveDDPData();
-
 		if (FD_ISSET(controlSock, &read_fd_set))
 			multiSync->ProcessControlPacket();
+        
+        for (auto &a : callbacks) {
+            if (FD_ISSET(a.first, &read_fd_set)) {
+                pushBridgeData |= a.second(a.first);
+            }
+        }
 
 		// Check to see if we need to start up the output thread.
 		// FIXME, possibly trigger this via a fpp command to fppd
 		if ((!ChannelOutputThreadIsRunning()) &&
 			(getFPPmode() != BRIDGE_MODE) &&
             ((PixelOverlayManager::INSTANCE.UsingMemoryMapInput()) ||
-			 (channelTester->Testing()) ||
+             (ChannelTester::INSTANCE.Testing()) ||
 			 (getAlwaysTransmit()))) {
 			int E131BridgingInterval = getSettingInt("E131BridgingInterval");
 			if (!E131BridgingInterval)
@@ -724,7 +722,6 @@ void MainLoop(void)
 
 	if (getFPPmode() == BRIDGE_MODE)
 		Bridge_Shutdown();
-
 	LogInfo(VB_GENERAL, "Main Loop complete, shutting down.\n");
 }
 

@@ -115,6 +115,32 @@ $ledTypes = Array();
     $ledTypes['128x32 Flipped I2C (SSD1306)'] = 4;
     $ledTypes['128x64 I2C (SH1106)'] = 5;
     $ledTypes['128x64 Flipped I2C (SH1106)'] = 6;
+    $ledTypes['128x128 I2C (SSD1327)'] = 9;
+    $ledTypes['128x128 Flipped I2C (SSD1327)'] = 10;
+    
+$AudioFormats = Array();
+    $AudioFormats['Default'] = 0;
+    $AudioFormats['44100/S16'] = 1;
+    $AudioFormats['44100/S32'] = 2;
+    $AudioFormats['44100/FLT'] = 3;
+    $AudioFormats['48000/S16'] = 4;
+    $AudioFormats['48000/S32'] = 5;
+    $AudioFormats['48000/FLT'] = 6;
+    $AudioFormats['96000/S16'] = 7;
+    $AudioFormats['96000/S32'] = 8;
+    $AudioFormats['96000/FLT'] = 9;
+    
+    
+$BBBLeds = Array();
+    $BBBLeds['Disabled'] = "none";
+    $BBBLeds['Heartbeat'] = "heartbeat";
+    $BBBLeds['SD Card Activity'] = "mmc0";
+    $BBBLeds['eMMC Activity'] = "mmc1";
+    $BBBLeds['CPU Activity'] = "cpu";
+    
+$BBBPowerLed = Array();
+    $BBBPowerLed['Disabled'] = 0;
+    $BBBPowerLed['Enabled'] = 1;
 
 function PrintStorageDeviceSelect($platform)
 {
@@ -373,13 +399,6 @@ function ToggleLCDNow()
 		+ enabled).fail(function() { alert("Failed to enable LCD!") });
 }
 
-function ToggleTetherMode()
-{
-    var enabled = $('#BBB_Tethering').is(":checked");
-    $.get("fppxml.php?command=setBBBTether&enabled="
-          + enabled).fail(function() { alert("Failed to disable Tethering!") });
-}
-
 </script>
 <title><? echo $pageTitle; ?></title>
 </head>
@@ -393,18 +412,7 @@ function ToggleTetherMode()
 <legend>FPP Global Settings</legend>
   <table table width = "100%">
 <?php
-    if ($settings['Platform'] == "BeagleBone Black")
-    {
-        exec('cat /proc/device-tree/model', $output, $return_val);
-        if (in_array('Wireless', $output) || strpos($output[0], 'Wireless') !== false ) {
-?>
-    <tr>
-        <td width = "45%">BBB Tethering:</td>
-        <td width = "55%"><? PrintSettingCheckbox("BBB Tethering", "BBB_Tethering", 0, 1, "1", "0", "", "ToggleTetherMode"); ?></td>
-    </tr>
-<?php
-        }
-    } else {
+    if ($settings['Platform'] == "Raspberry Pi") {
 ?>
     <tr>
       <td width = "45%">Blank screen on startup:</td>
@@ -439,7 +447,7 @@ function ToggleTetherMode()
     </tr>
     <tr>
       <td>Default Video Output Device:</td>
-      <td><? PrintSettingSelect("Video Output Device", "VideoOutput", 0, 0, $settings['videoOutput'], $VideoOutputModels); ?></td>
+<td><? PrintSettingSelect("Video Output Device", "VideoOutput", 0, 0, isset($settings['videoOutput']) ? $settings['videoOutput'] : array_values($VideoOutputModels)[0], $VideoOutputModels); ?></td>
     </tr>
 <?php
  if ($settings['Platform'] == "Raspberry Pi") {
@@ -449,6 +457,10 @@ function ToggleTetherMode()
       <td><? PrintSettingSelect("OMXPlayer Audio Device", "OMXPlayerAudioOutput", 0, 0, $settings['OMXPlayerAudioOutput'],
                                 Array("ALSA" => "alsa", "HDMI" => "hdmi", "Local" => "local", "Both" => "both", "Disabled" => "disabled")); ?>
      </td>
+    </tr>
+    <tr>
+      <td>Disable IP announcement during boot:</td>
+      <td><? PrintSettingCheckbox("Disable IP announcement during boot", "disableIPAnnouncement", 0, 0, "1", "0"); ?></td>
     </tr>
 <?php
  }
@@ -462,22 +474,27 @@ function ToggleTetherMode()
       <td><? PrintSettingSelect("Audio Mixer Device", "AudioMixerDevice", 1, 0, $AudioMixerDevice, $MixerDevices, "", "SetMixerDevice"); ?></td>
     </tr>
     <tr>
-      <td>Disable IP announcement during boot:</td>
-      <td><? PrintSettingCheckbox("Disable IP announcement during boot", "disableIPAnnouncement", 0, 0, "1", "0"); ?></td>
+      <td>Audio Output Format:</td>
+      <td><? PrintSettingSelect("Audio Output Format", "AudioFormat", 1, 0, isset($settings['AudioFormat']) ? $settings['AudioFormat'] : "0", $AudioFormats); ?></td>
     </tr>
     <tr>
       <td>UI Border Color:</td>
       <td><? PrintSettingSelect("UI Background Color", "backgroundColor", 0, 0, isset($settings['backgroundColor']) ? $settings['backgroundColor'] : "", $backgroundColors, "", "reloadPage"); ?></td>
     </tr>
+<? if ($settings['SubPlatform'] != "Docker" ) { ?>
     <tr>
-      <td>External Storage Device:</td>
+      <td>Storage Device:</td>
       <td><? PrintStorageDeviceSelect($settings['Platform']); ?></td>
     </tr>
+<? }
+   if ( file_exists("/dev/i2c-1") || file_exists("/dev/i2c-2") ) { ?>
     <tr>
         <td>OLED Status Display:</td>
         <td><? PrintSettingSelect("OLED Status Display", "LEDDisplayType", 0, 1, isset($settings['LEDDisplayType']) ? $settings['LEDDisplayType'] : "", $ledTypes); ?>
         </td>
     </tr>
+<? } ?>
+
     <tr>
       <td>Log Level:</td>
       <td><select id='LogLevel' onChange='LogLevelChanged();'>
@@ -521,6 +538,23 @@ function ToggleTetherMode()
         </table>
       </td>
     </tr>
+<?php
+    if ($settings['Platform'] == "BeagleBone Black") {
+?>
+    <tr>
+        <td valign='top'>BeagleBone LEDs:</td>
+        <td>
+            <table border=0 cellpadding=0 cellspacing=5 id='BBBLeds'>
+                <tr><td valign=top>USR1:</td><td><? PrintSettingSelect("USR1 LED", "BBBLeds0", 0, 0, isset($settings['BBBLeds0']) ? $settings['BBBLeds0'] : "heartbeat", $BBBLeds); ?></td></tr>
+                <tr><td valign=top>USR2:</td><td><? PrintSettingSelect("USR2 LED", "BBBLeds1", 0, 0, isset($settings['BBBLeds1']) ? $settings['BBBLeds1'] : "mmc0", $BBBLeds); ?></td></tr>
+                <tr><td valign=top>USR3:</td><td><? PrintSettingSelect("USR3 LED", "BBBLeds2", 0, 0, isset($settings['BBBLeds2']) ? $settings['BBBLeds2'] : "cpu", $BBBLeds); ?></td></tr>
+                <tr><td valign=top>USR4:</td><td><? PrintSettingSelect("USR4 LED", "BBBLeds3", 0, 0, isset($settings['BBBLeds3']) ? $settings['BBBLeds3'] : "mmc1", $BBBLeds); ?></td></tr>
+                <tr><td valign=top>Power:</td><td><? PrintSettingSelect("Power LED", "BBBLedPWR", 0, 0, isset($settings['BBBLedPWR']) ? $settings['BBBLedPWR'] : 1, $BBBPowerLed); ?></td></tr>
+            </table>
+        </td>
+    </tr>
+<? } ?>
+
 <tr><td><a href="advancedsettings.php">Advanced Settings</a></td></tr>
   </table>
 

@@ -33,13 +33,13 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "channeloutputthread.h"
 #include "common.h"
 #include "log.h"
 #include "MultiSync.h"
 #include "ogg123.h"
 #include "Sequence.h"
 #include "settings.h"
+#include "channeloutput/channeloutputthread.h"
 
 
 /*
@@ -76,8 +76,7 @@ int ogg123Output::Start(void)
 	fullAudioPath += "/";
 	fullAudioPath += m_mediaFilename;
 
-	if (!FileExists(fullAudioPath.c_str()))
-	{
+	if (!FileExists(fullAudioPath))	{
 		LogErr(VB_MEDIAOUT, "%s does not exist!\n", fullAudioPath.c_str());
 		return 0;
 	}
@@ -87,7 +86,7 @@ int ogg123Output::Start(void)
 	{
 		oggPlayer = OGG123_BINARY;
 	}
-	else if (!FileExists(oggPlayer.c_str()))
+	else if (!FileExists(oggPlayer))
 	{
 		LogDebug(VB_MEDIAOUT, "Configured oggPlayer %s does not exist, "
 			"falling back to %s\n", oggPlayer.c_str(), OGG123_BINARY);
@@ -158,10 +157,17 @@ int ogg123Output::Stop(void)
 
 	if(m_childPID > 0)
 	{
-		pid_t childPID = m_childPID;
-
+        int count = 0;
+        //try to let it exit cleanly first
+        kill(m_childPID, SIGTERM);
+        while (isChildRunning() && count < 25) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            count++;
+        }
+        if (isChildRunning()) {
+            kill(m_childPID, SIGKILL);
+        }
 		m_childPID = 0;
-		kill(childPID, SIGKILL);
 	}
 
 	pthread_mutex_unlock(&m_outputLock);
@@ -226,7 +232,7 @@ void ogg123Output::ParseTimes()
 
 	if (getFPPmode() == MASTER_MODE)
 	{
-        multiSync->SendMediaSyncPacket(m_mediaFilename.c_str(), 0,
+        multiSync->SendMediaSyncPacket(m_mediaFilename,
                                        m_mediaOutputStatus->mediaSeconds);
 	}
 
@@ -334,6 +340,11 @@ void ogg123Output::PollMusicInfo()
 	int bytesRead;
 	int result;
 	struct timeval ogg123_timeout;
+    
+    if (!isChildRunning()) {
+        Stop();
+        return;
+    }
 
 	m_readFDSet = m_activeFDSet;
 

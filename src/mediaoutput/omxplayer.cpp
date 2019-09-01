@@ -36,7 +36,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#include "channeloutputthread.h"
 #include "common.h"
 #include "log.h"
 #include "MultiSync.h"
@@ -44,6 +43,7 @@
 #include "mediaoutput.h"
 #include "settings.h"
 #include "Sequence.h"
+#include "channeloutput/channeloutputthread.h"
 
 #define MAX_BYTES_OMX 4096
 
@@ -94,7 +94,7 @@ int omxplayerOutput::Start(void)
 			fullVideoPath = tmpPath;
 	}
 
-	if (!FileExists(fullVideoPath.c_str()))
+	if (!FileExists(fullVideoPath))
 	{
 		if (getFPPmode() != REMOTE_MODE)
 			LogErr(VB_MEDIAOUT, "%s does not exist!\n", fullVideoPath.c_str());
@@ -279,6 +279,11 @@ void omxplayerOutput::PollPlayerInfo(void)
 
 	omx_timeout.tv_sec = 0;
 	omx_timeout.tv_usec = 5;
+    
+    if (!isChildRunning()) {
+        Stop();
+        return;
+    }
 
 	if(select(FD_SETSIZE, &m_readFDSet, NULL, NULL, &omx_timeout) < 0) {
 	 	LogErr(VB_MEDIAOUT, "Error Select:%d\n", errno);
@@ -303,7 +308,7 @@ void omxplayerOutput::PollPlayerInfo(void)
             }
             
             if (getFPPmode() == MASTER_MODE) {
-                multiSync->SendMediaSyncPacket(m_mediaFilename.c_str(), 0,
+                multiSync->SendMediaSyncPacket(m_mediaFilename,
                                                m_mediaOutputStatus->mediaSeconds);
             }
             
@@ -325,7 +330,7 @@ void omxplayerOutput::PollPlayerInfo(void)
 
 int omxplayerOutput::Process(void)
 {
-	if(m_childPID > 0) {
+	if (m_childPID > 0) {
 		PollPlayerInfo();
 	}
 
@@ -339,17 +344,65 @@ int omxplayerOutput::Stop(void)
 	if (!m_childPID)
 		return 0;
 
-    write(m_childPipe[0], "q", 1);
+    if (isChildRunning()) {
+        read(m_childPipe[0], m_omxBuffer, MAX_BYTES_OMX );
+        write(m_childPipe[0], "q", 1);
+        std::chrono::milliseconds(10);
+        int count = 0;
+        int brc = 0;
+        //try to let it exit cleanly first
+        m_omxBuffer[0] = 0;
+        bool stoppedFound = false;
+        while (isChildRunning() && count < 25) {
+            m_omxBuffer[0] = 0;
+            int bytesRead = read(m_childPipe[0], m_omxBuffer, MAX_BYTES_OMX );
+            if (bytesRead > 0) {
+                brc += bytesRead;
+                m_omxBuffer[bytesRead] = 0;
+                LogExcess(VB_MEDIAOUT, "count: %d    d: %s\n", count, m_omxBuffer);
+            }
+            if (strstr(m_omxBuffer, "Stopped") != NULL) {
+                stoppedFound = true;
+            }
+            if (m_omxBuffer[0] == 'M' && !stoppedFound && count > 10) {
+                //after 100ms, still didn't stop, try sending another q
+                write(m_childPipe[0], "q", 1);
+            }
 
-	LogDebug(VB_MEDIAOUT, "Stop(), killing pid %d\n", m_childPID);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            count++;
+        }
+        int bytesRead = read(m_childPipe[0], m_omxBuffer, MAX_BYTES_OMX );
+        if (bytesRead > 0) {
+            brc += bytesRead;
+            m_omxBuffer[bytesRead] = 0;
+            LogExcess(VB_MEDIAOUT, "count: %d    d: %s\n", count, m_omxBuffer);
+        }
+        LogDebug(VB_MEDIAOUT, "needed  %d0ms  and read %d bytes to stop omxplayer.  Is running: %d\n", count, brc, isChildRunning());
+    }
 
-	kill(m_childPID, SIGKILL);
-	m_childPID = 0;
-
-	// omxplayer is a shell script wrapper around omxplayer.bin and
-	// killing the PID of the schell script doesn't kill the child
-	// for some reason, so use this hack for now.
-	system("killall -9 omxplayer.bin");
+    if (isChildRunning()) {
+        LogInfo(VB_MEDIAOUT, "Need to send SIGTERM to omxplayer\n");
+        //didn't stop cleanly... now try a normal TERM
+        kill(m_childPID, SIGTERM);
+        system("killall omxplayer.bin");
+        int count = 0;
+        //try to let it exit cleanly first
+        while (isChildRunning() && count < 25) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            count++;
+        }
+    }
+    if (isChildRunning()) {
+        //ok.. still running.. need a hard kill
+        LogWarn(VB_MEDIAOUT, "Need to send SIGKILL to omxplayer\n");
+        kill(m_childPID, SIGKILL);
+        // omxplayer is a shell script wrapper around omxplayer.bin and
+        // killing the PID of the schell script doesn't kill the child
+        // for some reason, so use this hack for now.
+        system("killall -9 omxplayer.bin");
+    }
+    m_childPID = 0;
 
 	return 1;
 }
@@ -360,5 +413,6 @@ int omxplayerOutput::IsPlaying(void)
 }
 int omxplayerOutput::Close(void) {
     Stop();
+    MediaOutputBase::Close();
     return 0;
 }

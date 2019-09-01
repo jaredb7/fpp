@@ -75,7 +75,7 @@ public:
     PixelOverlayModel(FPPChannelMemoryMapControlBlock *block,
                       const std::string &name,
                       char         *chanDataMap,
-                      long long    *pixelMap);
+                      uint32_t     *pixelMap);
     ~PixelOverlayModel();
 
     const std::string &getName() const {return name;};
@@ -123,7 +123,7 @@ private:
     std::string name;
     FPPChannelMemoryMapControlBlock *block;
     char         *chanDataMap;
-    long long    *pixelMap;
+    uint32_t     *pixelMap;
     
     volatile std::thread *updateThread;
     volatile bool threadKeepRunning;
@@ -155,17 +155,21 @@ private:
     bool createChannelDataMap();
     bool createControlMap();
     bool createPixelMap();
-    bool loadModelMap();
+    void loadModelMap();
     void SetupPixelMapForBlock(FPPChannelMemoryMapControlBlock *b);
     void ConvertCMMFileToJSON();
     
     std::map<std::string, PixelOverlayModel*> models;
+    std::map<std::string, std::string> fonts;
+    bool fontsLoaded = false;
     std::mutex   modelsLock;
     char         *ctrlMap = nullptr;
     char         *chanDataMap = nullptr;
-    long long    *pixelMap = nullptr;
+    uint32_t     *pixelMap = nullptr;
     
     FPPChannelMemoryMapControlHeader *ctrlHeader = nullptr;
+    
+    void loadFonts();
 };
 
 

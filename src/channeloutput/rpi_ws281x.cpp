@@ -40,6 +40,13 @@
 #include "settings.h"
 
 
+extern "C" {
+    RPIWS281xOutput *createOutputRPIWS281X(unsigned int startChannel,
+                                           unsigned int channelCount) {
+        return new RPIWS281xOutput(startChannel, channelCount);
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 // Declare ledstring here since it's needed by the CTRL-C handler.
@@ -171,7 +178,7 @@ void RPIWS281xOutput::GetRequiredChannelRange(int &min, int & max) {
         int inCh = 0;
         for (int p = 0; p < ps->m_outputChannels; p++) {
             int ch = ps->m_outputMap[inCh++];
-            if (ch < (FPPD_MAX_CHANNELS - 3)) {
+            if (ch < FPPD_MAX_CHANNELS) {
                 min = std::min(min, ch);
                 max = std::max(max, ch);
             }

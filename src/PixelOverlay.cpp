@@ -40,6 +40,10 @@
 #include <string>
 #include <chrono>
 
+#include <dirent.h>
+#include <dlfcn.h>
+#include <sys/stat.h>
+
 #include <boost/algorithm/string/replace.hpp>
 #include <jsoncpp/json/json.h>
 
@@ -52,14 +56,14 @@
 #include "PixelOverlayControl.h"
 #include "Sequence.h"
 #include "settings.h"
-#include "channeloutputthread.h"
+#include "channeloutput/channeloutputthread.h"
 
 PixelOverlayManager PixelOverlayManager::INSTANCE;
 
 PixelOverlayModel::PixelOverlayModel(FPPChannelMemoryMapControlBlock *b,
                                      const std::string &n,
                                      char         *cdm,
-                                     long long    *pm)
+                                     uint32_t     *pm)
     : block(b), name(n), chanDataMap(cdm), pixelMap(pm),
     updateThread(nullptr),threadKeepRunning(false),
     imageData(nullptr), imageDataRows(0), imageDataCols(0)
@@ -113,9 +117,9 @@ void PixelOverlayModel::fill(int r, int g, int b) {
     int end = block->startChannel + block->channelCount - 2;
     
     for (int c = start; c <= end;) {
-        chanDataMap[c++] = r;
-        chanDataMap[c++] = g;
-        chanDataMap[c++] = b;
+        chanDataMap[pixelMap[c++]] = r;
+        chanDataMap[pixelMap[c++]] = g;
+        chanDataMap[pixelMap[c++]] = b;
     }
 }
 void PixelOverlayModel::setValue(uint8_t value, int startChannel, int endChannel) {
@@ -140,14 +144,14 @@ void PixelOverlayModel::setValue(uint8_t value, int startChannel, int endChannel
     end--;
     
     for (int c = start; c <= end; c++) {
-        chanDataMap[c] = value;
+        chanDataMap[pixelMap[c]] = value;
     }
 }
 void PixelOverlayModel::setPixelValue(int x, int y, int r, int g, int b) {
     int c = block->startChannel - 1 + (y*getWidth()*3) + x*3;
-    chanDataMap[c++] = r;
-    chanDataMap[c++] = g;
-    chanDataMap[c++] = b;
+    chanDataMap[pixelMap[c++]] = r;
+    chanDataMap[pixelMap[c++]] = g;
+    chanDataMap[pixelMap[c++]] = b;
 }
 
 void PixelOverlayModel::doText(const std::string &msg,
@@ -365,9 +369,7 @@ void PixelOverlayModel::toJson(Json::Value &result) {
 }
 
 
-
 PixelOverlayManager::PixelOverlayManager() {
-    
 }
 PixelOverlayManager::~PixelOverlayManager() {
     for (auto a : models) {
@@ -381,7 +383,7 @@ PixelOverlayManager::~PixelOverlayManager() {
         munmap(ctrlMap, FPPCHANNELMEMORYMAPSIZE);
     }
     if (pixelMap) {
-        munmap(pixelMap, FPPD_MAX_CHANNELS * sizeof(long long));
+        munmap(pixelMap, FPPD_MAX_CHANNELS * sizeof(uint32_t));
     }
 }
 void PixelOverlayManager::Initialize() {
@@ -408,6 +410,7 @@ bool PixelOverlayManager::createChannelDataMap() {
     LogDebug(VB_CHANNELOUT, "PixelOverlayManager::createChannelDataMap()\n");
     
     mkdir(FPPCHANNELMEMORYMAPPATH, 0777);
+    chmod(FPPCHANNELMEMORYMAPPATH, 0777);
     // Block of of raw channel data used to overlay data
     int chanDataMapFD = open(FPPCHANNELMEMORYMAPDATAFILE, O_CREAT | O_TRUNC | O_RDWR, 0666);
     if (chanDataMapFD < 0) {
@@ -486,9 +489,9 @@ bool PixelOverlayManager::createPixelMap() {
     }
     
     chmod(FPPCHANNELMEMORYMAPPIXELFILE, 0666);
-    uint8_t* tmpData = (uint8_t*)calloc(FPPD_MAX_CHANNELS, sizeof(long long));
+    uint8_t* tmpData = (uint8_t*)calloc(FPPD_MAX_CHANNELS, sizeof(uint32_t));
     if (write(pixelFD, (void *)tmpData,
-              FPPD_MAX_CHANNELS * sizeof(long long)) != (FPPD_MAX_CHANNELS * sizeof(long long))) {
+              FPPD_MAX_CHANNELS * sizeof(uint32_t)) != (FPPD_MAX_CHANNELS * sizeof(uint32_t))) {
         LogErr(VB_CHANNELOUT, "Error populating %s memory map file: %s\n",
                FPPCHANNELMEMORYMAPPIXELFILE, strerror(errno));
         close(pixelFD);
@@ -497,7 +500,7 @@ bool PixelOverlayManager::createPixelMap() {
     }
     free(tmpData);
     
-    pixelMap = (long long *)mmap(0, FPPD_MAX_CHANNELS * sizeof(long long), PROT_READ|PROT_WRITE, MAP_SHARED, pixelFD, 0);
+    pixelMap = (uint32_t *)mmap(0, FPPD_MAX_CHANNELS * sizeof(uint32_t), PROT_READ|PROT_WRITE, MAP_SHARED, pixelFD, 0);
     close(pixelFD);
     if (!pixelMap) {
         LogErr(VB_CHANNELOUT, "Error mapping %s memory map file: %s\n",
@@ -543,7 +546,7 @@ static void PrintChannelMapBlocks(FPPChannelMemoryMapControlHeader *ctrlHeader) 
 }
 
 
-bool PixelOverlayManager::loadModelMap() {
+void PixelOverlayManager::loadModelMap() {
     LogDebug(VB_CHANNELOUT, "PixelOverlayManager::loadModelMap()\n");
     
     for (auto a : models) {
@@ -555,7 +558,7 @@ bool PixelOverlayManager::loadModelMap() {
     if (!ctrlMap) {
         LogErr(VB_CHANNELOUT, "Error, trying to load memory map data when "
                "memory map is not configured.");
-        return false;
+        return;
     }
     
     char filename[1024];
@@ -574,7 +577,7 @@ bool PixelOverlayManager::loadModelMap() {
         bool success = reader.parse(buffer.str(), root);
         if (!success) {
             LogErr(VB_CHANNELOUT, "Error parsing %s\n", filename);
-            return false;
+            return;
         }
         const Json::Value models = root["models"];
         FPPChannelMemoryMapControlBlock *cb = NULL;
@@ -751,7 +754,7 @@ void PixelOverlayManager::SetupPixelMapForBlock(FPPChannelMemoryMapControlBlock 
                 int inCh = (cb->startChannel - 1) + (ppos * 3);
                 
                 // X position in output
-                int outX = (LtoR != ((segment % 2) != TtoB)) ? width - x - 1 : x;
+                int outX = (LtoR == (segment % 2)) ? width - x - 1 : x;
                 // Y position in output
                 int outY = (TtoB) ? y : height - y - 1;
                 
@@ -786,7 +789,7 @@ void PixelOverlayManager::SetupPixelMapForBlock(FPPChannelMemoryMapControlBlock 
                 // X position in output
                 int outX = (LtoR) ? x : width - x - 1;
                 // Y position in output
-                int outY = (TtoB != ((segment % 2) != LtoR)) ? height - y - 1 : y;
+                int outY = (TtoB == (segment % 2)) ? height - y - 1 : y;
                 
                 // Relative Mapped Output Pixel 'R' channel
                 int mpos = outX * height + outY;
@@ -876,6 +879,57 @@ PixelOverlayModel* PixelOverlayManager::getModel(const std::string &name) {
 }
 
 
+
+
+static bool isTTF(const std::string &mainStr)
+{
+    return (mainStr.size() >= 4) && (mainStr.compare(mainStr.size() - 4, 4, ".ttf") == 0);
+}
+static void findFonts(const std::string &dir, std::map<std::string, std::string> &fonts) {
+    DIR *dp;
+    struct dirent *ep;
+    
+    dp = opendir(dir.c_str());
+    if (dp != NULL) {
+        while (ep = readdir(dp)) {
+            int location = strstr(ep->d_name, ".") - ep->d_name;
+            // We're one of ".", "..", or hidden, so let's skip
+            if (location == 0) {
+                continue;
+            }
+            
+            struct stat statbuf;
+            std::string dname = dir;
+            dname += ep->d_name;
+            lstat(dname.c_str(), &statbuf);
+            if (S_ISLNK(statbuf.st_mode)) {
+                //symlink, skip
+                continue;
+            } else if (S_ISDIR(statbuf.st_mode)) {
+                findFonts(dname + "/", fonts);
+            } else if (isTTF(ep->d_name)) {
+                std::string fname = ep->d_name;
+                fname.resize(fname.size() - 4);
+                fonts[fname] = dname;
+            }
+        }
+    }
+}
+
+void PixelOverlayManager::loadFonts() {
+    if (!fontsLoaded) {
+        long unsigned int i = 0;
+        char **mlfonts = MagickLib::GetTypeList("*", &i);
+        for (int x = 0; x < i; x++) {
+            fonts[mlfonts[x]] = "";
+        }
+        findFonts("/usr/share/fonts/truetype/", fonts);
+        findFonts("/usr/local/share/fonts/", fonts);
+        free(mlfonts);
+        fontsLoaded = true;
+    }
+}
+
 const httpserver::http_response PixelOverlayManager::render_GET(const httpserver::http_request &req) {
     std::string p1 = req.get_path_pieces()[0];
     int plen = req.get_path_pieces().size();
@@ -914,14 +968,10 @@ const httpserver::http_response PixelOverlayManager::render_GET(const httpserver
         std::string p4 = req.get_path_pieces().size() > 3 ? req.get_path_pieces()[3] : "";
         Json::Value result;
         if (p2 == "fonts") {
-            long unsigned int i = 0;
-            char **fonts = MagickLib::GetTypeList("*", &i);
-            //char **fonts = MagickQueryFonts("*", &i);
-            for (int x = 0; x < i; x++) {
-                result.append(fonts[x]);
+            loadFonts();
+            for (auto & a : fonts) {
+                result.append(a.first);
             }
-            free(fonts);
-            
         } else if (p2 == "models") {
             std::unique_lock<std::mutex> lock(modelsLock);
             for (auto & m : models) {
@@ -1011,7 +1061,11 @@ const httpserver::http_response PixelOverlayManager::render_PUT(const httpserver
                         if (root.isMember("State")) {
                             m->setState(PixelOverlayState(root["State"].asInt()));
                             return httpserver::http_response_builder("OK", 200);
+                        } else {
+                            return httpserver::http_response_builder("Invalid request " + req.get_content(), 500);
                         }
+                    } else {
+                        return httpserver::http_response_builder("Could not parse request " + req.get_content(), 500);
                     }
                 } else if (p4 == "fill") {
                     Json::Value root;
@@ -1038,6 +1092,7 @@ const httpserver::http_response PixelOverlayManager::render_PUT(const httpserver
                         }
                     }
                 } else if (p4 == "text") {
+                    loadFonts();
                     Json::Value root;
                     Json::Reader reader;
                     if (reader.parse(req.get_content(), root)) {
@@ -1055,11 +1110,17 @@ const httpserver::http_response PixelOverlayManager::render_PUT(const httpserver
                             int fontSize = root["FontSize"].asInt();
                             bool aa = root["AntiAlias"].asBool();
                             int pps = root["PixelsPerSecond"].asInt();
+                            
+                            std::string f = fonts[font];
+                            if (f == "") {
+                                f = font;
+                            }
+                            
                             m->doText(msg,
                                       (x >> 16) & 0xFF,
                                       (x >> 8) & 0xFF,
                                       x & 0xFF,
-                                      font,
+                                      f,
                                       fontSize,
                                       aa,
                                       position,

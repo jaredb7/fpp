@@ -30,17 +30,16 @@
 
 #include "log.h"
 #include "mediadetails.h"
-#include "mpg123.h"
 #include "mqtt.h"
 #include "MultiSync.h"
-#include "ogg123.h"
-#include "omxplayer.h"
 #include "PlaylistEntryMedia.h"
 #include "Plugins.h"
-#include "SDLOut.h"
 #include "settings.h"
-
-extern MediaDetails mediaDetails;
+#include "mediaoutput/mpg123.h"
+#include "mediaoutput/ogg123.h"
+#include "mediaoutput/omxplayer.h"
+#include "mediaoutput/SDLOut.h"
+#include "Playlist.h"
 
 /*
  *
@@ -92,7 +91,6 @@ int PlaylistEntryMedia::Init(Json::Value &config)
     if (config.isMember("videoOut")) {
         m_videoOutput = config["videoOut"].asString();
     }
-
 	return PlaylistEntryBase::Init(config);
 }
 
@@ -110,13 +108,16 @@ int PlaylistEntryMedia::PreparePlay() {
         return 0;
     }
 
+    if (getFPPmode() == MASTER_MODE)
+        multiSync->SendMediaOpenPacket(m_mediaFilename);
+    
     if (mqtt) {
         mqtt->Publish("playlist/media/status", m_mediaFilename);
-        mqtt->Publish("playlist/media/title", mediaDetails.title);
-        mqtt->Publish("playlist/media/artist", mediaDetails.artist);
+        mqtt->Publish("playlist/media/title", MediaDetails::INSTANCE.title);
+        mqtt->Publish("playlist/media/artist", MediaDetails::INSTANCE.artist);
     }
-    
-    pluginCallbackManager.mediaCallback();
+
+    PluginManager::INSTANCE.mediaCallback(playlist->GetInfo(), MediaDetails::INSTANCE);
     return 1;
 }
 
@@ -141,7 +142,7 @@ int PlaylistEntryMedia::StartPlaying(void)
     pthread_mutex_lock(&m_mediaOutputLock);
 
     if (getFPPmode() == MASTER_MODE)
-        multiSync->SendMediaSyncStartPacket(m_mediaFilename.c_str());
+        multiSync->SendMediaSyncStartPacket(m_mediaFilename);
     
     if (!m_mediaOutput->Start()) {
         LogErr(VB_MEDIAOUT, "Could not start media %s\n", m_mediaOutput->m_mediaFilename.c_str());
@@ -293,36 +294,24 @@ int PlaylistEntryMedia::OpenMediaOutput(void)
 #endif
     }
 
-	if ((ext == "mp3") ||
-		(ext == "m4a") ||
-		(ext == "ogg"))
-	{
 #if !defined(PLATFORM_BBB)
-		if (getSettingInt("LegacyMediaOutputs"))
-		{
-			if (ext == "mp3") {
-				m_mediaOutput = new mpg123Output(tmpFile, &mediaOutputStatus);
-			} else if (ext == "ogg") {
-				m_mediaOutput = new ogg123Output(tmpFile, &mediaOutputStatus);
-			}
-		}
-		else
+    if (getSettingInt("LegacyMediaOutputs") && (ext == "mp3" || ext == "ogg")) {
+        if (ext == "mp3") {
+            m_mediaOutput = new mpg123Output(tmpFile, &mediaOutputStatus);
+        } else if (ext == "ogg") {
+            m_mediaOutput = new ogg123Output(tmpFile, &mediaOutputStatus);
+        }
+    } else
 #endif
-			m_mediaOutput = new SDLOutput(tmpFile, &mediaOutputStatus, "--Disabled--");
+	if (IsExtensionAudio(ext)) {
+        m_mediaOutput = new SDLOutput(tmpFile, &mediaOutputStatus, "--Disabled--");
 #ifdef PLATFORM_PI
-	}
-	else if (((ext == "mp4") ||
-			 (ext == "mkv")) && vOut == "--HDMI--")
-	{
-		m_mediaOutput = new omxplayerOutput(tmpFile, &mediaOutputStatus);
+    } else if (IsExtensionVideo(ext) && vOut == "--HDMI--") {
+        m_mediaOutput = new omxplayerOutput(tmpFile, &mediaOutputStatus);
 #endif
-    } else if ((ext == "mp4") ||
-               (ext == "mkv") ||
-               (ext == "avi")) {
+    } else if (IsExtensionVideo(ext)) {
         m_mediaOutput = new SDLOutput(tmpFile, &mediaOutputStatus, vOut);
-	}
-	else
-	{
+	} else {
 		pthread_mutex_unlock(&mediaOutputLock);
 		LogDebug(VB_MEDIAOUT, "No Media Output handler for %s\n", tmpFile.c_str());
 		return 0;
@@ -334,7 +323,7 @@ int PlaylistEntryMedia::OpenMediaOutput(void)
 		return 0;
 	}
 
-    ParseMedia(m_mediaFilename.c_str());
+    MediaDetails::INSTANCE.ParseMedia(m_mediaFilename.c_str());
     pthread_mutex_unlock(&m_mediaOutputLock);
 
 
@@ -359,7 +348,7 @@ int PlaylistEntryMedia::CloseMediaOutput(void)
 	}
 
     if (getFPPmode() == MASTER_MODE)
-        multiSync->SendMediaSyncStopPacket(m_mediaFilename.c_str());
+        multiSync->SendMediaSyncStopPacket(m_mediaFilename);
 
 	if (m_mediaOutput->m_childPID) {
 		pthread_mutex_unlock(&m_mediaOutputLock);
@@ -397,3 +386,15 @@ Json::Value PlaylistEntryMedia::GetConfig(void)
 	return result;
 }
 
+Json::Value PlaylistEntryMedia::GetMqttStatus(void)
+{
+	Json::Value result = PlaylistEntryBase::GetMqttStatus();
+	result["secondsElapsed"]    = mediaOutputStatus.secondsElapsed;
+	result["secondsRemaining"]  = mediaOutputStatus.secondsRemaining;
+	result["secondsTotal"]      = mediaOutputStatus.secondsTotal;
+	result["mediaName"]         = m_mediaFilename;
+	result["mediaTitle"]        = MediaDetails::INSTANCE.title;
+	result["mediaArtist"]       = MediaDetails::INSTANCE.artist;
+
+	return result;
+}

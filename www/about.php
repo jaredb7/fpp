@@ -12,6 +12,12 @@ if ( $return_val != 0 )
 	$fpp_version = "Unknown";
 unset($output);
 
+$serialNumber = exec("sed -n 's/^Serial.*: //p' /proc/cpuinfo", $output, $return_val);
+if ( $return_val != 0 )
+    unset($serialNumber);
+unset($output);
+
+    
 if (!file_exists("/etc/fpp/config_version") && file_exists("/etc/fpp/rfs_version"))
 {
 	exec($SUDO . " $fppDir/scripts/upgrade_config");
@@ -200,6 +206,9 @@ a:visited {
             <tr><td>FPP Version:</td><td><? echo $fpp_version; ?></td></tr>
             <tr><td>FPP OS Build:</td><td><? echo $os_build; ?></td></tr>
             <tr><td>OS Version:</td><td><? echo $os_version; ?></td></tr>
+<? if (isset($serialNumber) && $serialNumber != "") { ?>
+        <tr><td>Hardware Serial Number:</td><td><? echo $serialNumber; ?></td></tr>
+<? } ?>
             <tr><td>Kernel Version:</td><td><? echo $kernel_version; ?></td></tr>
 <? if (file_exists($mediaDirectory."/.developer_mode")) { ?>
             <tr><td>Git Branch:</td><td><select id='gitBranch' onChange="ChangeGitBranch($('#gitBranch').val());">
@@ -297,11 +306,13 @@ a:visited {
         <legend>About Cape/Hat</legend>
         <div style="overflow: hidden; padding: 10px;">
         <div>
-        <div class='aboutLeft'>
+        <div class='<? if (isSet($currentCapeInfo['vendor'])) { echo "aboutLeft"; } else { echo "aboutAll";} ?> '>
         <table class='tblAbout'>
         <tr><td><b>Name:</b></td><td width="100%"><? echo $currentCapeInfo['name']  ?></td></tr>
-        <tr><td><b>Version:</b></td><td><? echo $currentCapeInfo['version'] ?></td></tr>
         <?
+        if (isSet($currentCapeInfo['version'])) {
+            echo "<tr><td><b>Version:</b></td><td>" . $currentCapeInfo['version'] . "</td></tr>";
+        }
         if (isSet($currentCapeInfo['serialNumber'])) {
             echo "<tr><td><b>Serial&nbsp;Number:</b></td><td>" . $currentCapeInfo['serialNumber'] . "</td></tr>";
         }
@@ -310,7 +321,7 @@ a:visited {
         }
         if (isSet($currentCapeInfo['description'])) {
             echo "<tr><td colspan=\"2\">";
-            if (isSet($currentCapeInfo['vendor'])) {
+            if (isSet($currentCapeInfo['vendor']) || $currentCapeInfo['name'] == "Unknown") {
                 echo $currentCapeInfo['description'];
             } else {
                 echo htmlspecialchars($currentCapeInfo['description']);
@@ -325,7 +336,16 @@ a:visited {
                <table class='tblAbout'>
                     <tr><td><b>Vendor&nbsp;Name:</b></td><td><? echo $currentCapeInfo['vendor']['name']  ?></td></tr>
             <? if (isSet($currentCapeInfo['vendor']['url'])) {
-                echo "<tr><td><b>Vendor&nbsp;URL:</b></td><td><a href=\"" . $currentCapeInfo['vendor']['url'] . "\">" . $currentCapeInfo['vendor']['url'] . "</a></td></tr>";
+                $url = $currentCapeInfo['vendor']['url'];
+                $landing = $url;
+                if (isSet($currentCapeInfo['vendor']['landingPage'])) {
+                    $landing = $currentCapeInfo['vendor']['landingPage'];
+                }
+                $landing = $landing  . "?sn=" . $currentCapeInfo['serialNumber'] . "&id=" . $currentCapeInfo['id'];
+                if (isset($currentCapeInfo['cs']) && $currentCapeInfo['cs'] != "") {
+                    $landing = $landing . "&cs=" . $currentCapeInfo['cs'];
+                }
+                echo "<tr><td><b>Vendor&nbsp;URL:</b></td><td><a href=\"" . $landing . "\">" . $url . "</a></td></tr>";
             }
             if (isSet($currentCapeInfo['vendor']['phone'])) {
                  echo "<tr><td><b>Phone&nbsp;Number:</b></td><td>" . $currentCapeInfo['vendor']['phone'] . "</td></tr>";
@@ -334,7 +354,11 @@ a:visited {
                 echo "<tr><td><b>E-mail:</b></td><td><a href=\"mailto:" . $currentCapeInfo['vendor']['email'] . "\">" . $currentCapeInfo['vendor']['email'] . "</td></tr>";
             }
             if (isSet($currentCapeInfo['vendor']['image'])) {
-                echo "<tr><td colspan=\"2\"><a href=\"" . $currentCapeInfo['vendor']['url'] . "\"><img style='max-height: 90px; max-width: 300px;' src=\"" . $currentCapeInfo['vendor']['image'] . "?sn=" . $currentCapeInfo['serialNumber'] . "&id=" . $currentCapeInfo['id']  . "\" /></a></td></tr>";
+                $iurl = $currentCapeInfo['vendor']['image'] . "?sn=" . $currentCapeInfo['serialNumber'] . "&id=" . $currentCapeInfo['id'];
+                if (isset($currentCapeInfo['cs']) && $currentCapeInfo['cs'] != "") {
+                    $iurl = $iurl . "&cs=" . $currentCapeInfo['cs'];
+                }
+                echo "<tr><td colspan=\"2\"><a href=\"" . $landing . "\"><img style='max-height: 90px; max-width: 300px;' src=\"" . $iurl . "\" /></a></td></tr>";
             }?>
                </table>
                </div>

@@ -110,9 +110,19 @@ function list_plugin_entries($menu)
             if ($settings['LogoLink'] != "") echo "<a href='" . $settings['LogoLink'] . "' target='_blank'>";
 		    if ($settings['Logo'] != "") echo "<img src='images/" . $settings['Logo'] . "' class='logo'>";
 		    if ($settings['LogoLink'] != "") echo "</a>";
-if (isSet($settings['cape-info']) && isSet($settings['cape-info']['vendor']) && isSet($settings['cape-info']['vendor']['image'])) {
-echo "<a href=\"" . $settings['cape-info']['vendor']['url'] . "\"><img style='max-width:125px; max-height:60px;' src=\"". $settings['cape-info']['vendor']['image'] . "?sn=" . $settings['cape-info']['serialNumber'] . "&id=" . $settings['cape-info']['id'] . "\"></a>";
-}
+            if (isSet($settings['cape-info']) && isSet($settings['cape-info']['vendor']) && isSet($settings['cape-info']['vendor']['image'])) {
+                $landing = $settings['cape-info']['vendor']['url'];
+                if (isSet($settings['cape-info']['vendor']['landingPage'])) {
+                    $landing = $settings['cape-info']['vendor']['landingPage'];
+                }
+                $iurl = $settings['cape-info']['vendor']['image'] . "?sn=" . $settings['cape-info']['serialNumber'] . "&id=" . $settings['cape-info']['id'];
+                $landing = $landing . "?sn=" . $settings['cape-info']['serialNumber'] . "&id=" . $settings['cape-info']['id'];
+                if (isset($settings['cape-info']['cs']) && $settings['cape-info']['cs'] != "") {
+                    $iurl = $iurl . "&cs=" . $settings['cape-info']['cs'];
+                    $landing = $landing . "&cs=" . $settings['cape-info']['cs'];
+                }
+                echo "<a href=\"" . $landing . "\"><img style='max-width:125px; max-height:60px;' src=\"" . $iurl . "\"></a>";
+            }
           ?>
 
 		</div>
@@ -130,6 +140,7 @@ echo "<a href=\"" . $settings['cape-info']['vendor']['url'] . "\"><img style='ma
           <li><a href="settings.php">FPP Settings</a></li>
           <li><a href="backup.php">FPP Backup</a></li>
           <li><a href="email.php">Email Settings</a></li>
+          <li><a href="proxies.php">Proxy Settings</a></li>
           <li><a href="events.php">Events</a></li>
           <li><a href="effects.php">Effects</a></li>
           <li><a href="testing.php">Display Testing</a></li>
@@ -141,8 +152,8 @@ echo "<a href=\"" . $settings['cape-info']['vendor']['url'] . "\"><img style='ma
           <li><a href="uploadfile.php">File Manager</a></li>
           <li><a href="playlists.php">Playlists</a></li>
           <li><a href="scheduler.php">Scheduler</a></li>
-		  <li><a href="plugins.php">Plugin Manager</a></li>
           <li><a href="scriptbrowser.php">Script Repository Browser</a></li>
+          <li><a href="plugins.php">Plugin Manager</a></li>
           <?php list_plugin_entries("content"); ?>
         </ul>
       </li>
@@ -158,6 +169,7 @@ echo "<a href=\"" . $settings['cape-info']['vendor']['url'] . "\"><img style='ma
       </li>
       <li><a>Help</a>
         <ul>
+          <li><a href="https://docs.google.com/viewer?url=https://falconchristmas.github.io/FPP_Manual.pdf" target="_blank">FPP Manual</a></li>
           <li><a href="http://falconchristmas.com/wiki/index.php/Falcon_FPP" target="_blank">Wiki/Help</a></li>
           <li><a href="help.php">Help Index</a></li>
           <li><a href="cliHelp.php">fpp &amp; fppmm Usage</a></li>

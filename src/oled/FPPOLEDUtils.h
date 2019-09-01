@@ -24,7 +24,6 @@ private:
     std::array<gpiod_chip*, 5> gpiodChips;
 
     int _ledType;
-    bool _displayOn;
     FPPStatusOLEDPage *statusPage;
     class InputAction {
     public:
@@ -43,6 +42,7 @@ private:
         std::string mode;
         std::string edge;
         int file;
+        int pollIndex;
         std::vector<Action> actions;
         
         const std::string &checkAction(int i, long long time);

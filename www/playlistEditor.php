@@ -120,7 +120,7 @@ function MediaChanged()
 	if ($('#autoSelectMatches').is(':checked') == false)
 		return;
 
-	var value = $('#selMedia').val().replace(/\.ogg|\.mp3|\.mp4|\.m4a/i, "");
+	var value = $('#selMedia').val().replace(/\.ogg|\.mp3|\.mp4|\.mov|\.m4a/i, "");
 
 	var seq = document.getElementById("selSequence")
 	for (var i = 0; i < seq.length; i++) {
@@ -138,7 +138,7 @@ function SequenceChanged()
 
 	var media = document.getElementById("selMedia")
 	for (var i = 0; i < media.length; i++) {
-		if (media.options[i].value.replace(/\.ogg|\.mp3|\.mp4|\.m4a/i, "") == value)
+		if (media.options[i].value.replace(/\.ogg|\.mp3|\.mp4|\.mov|\.m4a/i, "") == value)
 			$('#selMedia').val(media.options[i].value);
 	}
 }
@@ -198,21 +198,13 @@ function PrintMediaOptions()
 	echo "  <option value='--Default--'>Default</option>";
 	echo "  <option value='--Disabled--'>Disabled</option>";
 
-	$f = fopen($settings['channelMemoryMapsFile'], "r");
-	if ($f == FALSE) {
-		fclose($f);
-	} else {
-		while (!feof($f)) {
-			$line = fgets($f);
-			if ($line == "")
-				continue;
-			$entry = explode(",", $line, 7);
-			printf( "<option value='%s'>%s</option>\n", $entry[0], $entry[0]);
-		}
-		fclose($f);
-	}
-	echo "</select>";
-
+    if (file_exists($settings['model-overlays'])) {
+        $json = json_decode(file_get_contents($settings['model-overlays']));
+        foreach ($json->models as $value) {
+            printf( "<option value='%s'>%s</option>\n", $value->Name, $value->Name);
+        }
+    }
+    echo "</select>";
 }			
  
 function PrintSequenceOptions()
@@ -282,7 +274,8 @@ function PrintScriptOptions($id)
 			echo "<option value=\"" . $scriptFile . "\">" . $scriptFile . "</option>";
 		}
 	}
-	echo "</select>";
+    echo "</select>";
+    echo " &nbsp; <input type=\"checkbox\" id=\"" . $id . "_blocking\" > Wait For Completion";
 
 	echo "<br>Arguments: <input id=\"" . $id . "_args\" type=\"text\" size=\"60\" maxlength=\"255\">";
 }

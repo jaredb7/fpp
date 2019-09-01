@@ -9,9 +9,9 @@ writeFPPVersionJavascriptFunctions();
     
 include 'common/menuHead.inc';
 ?>
-<script type="text/javascript" src="/js/fpp.js"></script>
-<script type="text/javascript" src="/jquery/Spin.js/spin.js"></script>
-<script type="text/javascript" src="/jquery/Spin.js/jquery.spin.js"></script>
+<script type="text/javascript" src="js/fpp.js?ref=<?php echo filemtime('js/fpp.js'); ?>"></script>
+<script type="text/javascript" src="jquery/Spin.js/spin.js"></script>
+<script type="text/javascript" src="jquery/Spin.js/jquery.spin.js"></script>
 <script>
 var installedPlugins = [];
 var pluginInfos = [];
@@ -192,9 +192,9 @@ function LoadPlugin(data) {
 	var compatibleVersion = -1;
 	for (var i = 0; i < data.versions.length; i++)
 	{
-		if ((CompareFPPVersions(data.versions[i].minFPPVersion, getFPPVersionFloatStr()) < 0) &&
+		if ((CompareFPPVersions(data.versions[i].minFPPVersion, getFPPVersionTriplet()) <= 0) &&
 			((data.versions[i].maxFPPVersion == "0") || (data.versions[i].maxFPPVersion == "0.0") ||
-			 (CompareFPPVersions(data.versions[i].maxFPPVersion, getFPPVersionFloatStr()) > 0)))
+			 (CompareFPPVersions(data.versions[i].maxFPPVersion, getFPPVersionTriplet()) > 0)))
 		{
 			compatibleVersion = i;
 		}
@@ -258,6 +258,7 @@ function LoadPlugin(data) {
 				html += ' &gt; v' + data.versions[i].minFPPVersion;
 			else if (data.versions[i].maxFPPVersion > 0)
 				html += ' &lt; v' + data.versions[i].maxFPPVersion;
+        
 		}
 	}
 
@@ -282,7 +283,7 @@ function LoadPlugin(data) {
 		$('#templatePlugin').show();
 		$('#templatePlugin').append(html);
 	}
-	else if (infoURL.indexOf("/fpp-pluginList/oldplugins/") >= 0)
+	else if (infoURL && infoURL.indexOf("/fpp-pluginList/oldplugins/") >= 0)
 	{
 		if (firstUntested)
 		{

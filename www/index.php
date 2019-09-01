@@ -94,6 +94,23 @@ include 'common/menuHead.inc';
 		SetVolume(volume);
 	}
 
+    function PreviousPlaylistEntry()
+    {
+        var xmlhttp=new XMLHttpRequest();
+        var url = "fppxml.php?command=playlistPrevEntry";
+        xmlhttp.open("GET",url,true);
+        xmlhttp.setRequestHeader('Content-Type', 'text/xml');
+        xmlhttp.send();
+    }
+    function NextPlaylistEntry()
+    {
+        var xmlhttp=new XMLHttpRequest();
+        var url = "fppxml.php?command=playlistNextEntry";
+        xmlhttp.open("GET",url,true);
+        xmlhttp.setRequestHeader('Content-Type', 'text/xml');
+        xmlhttp.send();
+    }
+
 	</script>
 
 
@@ -105,9 +122,9 @@ include 'common/menuHead.inc';
   ?>
 <br/>
 <?php
-    if (isset($settings["LastBlock"]) && $settings["LastBlock"] > 1000000 && $settings["LastBlock"] < 7000000) {
+    if (isset($settings["LastBlock"]) && $settings["LastBlock"] > 1000000 && $settings["LastBlock"] < 7200000) {
     ?>
-<div id='upgradeFlag' style='background-color:red'>SD card has unused space.  Go to <a href="/advancedsettings.php">Advanced Settings</a> to expand the file system or create a new storage partition.</div>
+<div id='upgradeFlag' style='background-color:red'>SD card has unused space.  Go to <a href="advancedsettings.php">Advanced Settings</a> to expand the file system or create a new storage partition.</div>
 <br>
 <?php
     }
@@ -128,7 +145,7 @@ include 'common/menuHead.inc';
 						</select>
 <?
 	if (isset($settings['fppMode']) && ($settings['fppMode'] == 'master' || $settings['fppMode'] == 'player'))
-		echo "<a href='/minimal.php'>Switch to Compact Status UI</a>";
+		echo "<a href='minimal.php'>Switch to Compact Status UI</a>";
 ?>
 						</td>
           <td class='controlButton'>&nbsp;</td>
@@ -258,6 +275,8 @@ include 'common/menuHead.inc';
 
       <div id="playerControls" style="margin-top:5px">
         <input id= "btnPlay" type="button"  class ="buttons"value="Play" onClick="StartPlaylistNow();">
+        <input id= "btnPrev" type="button"  class ="buttons"value="Previous" onClick="PreviousPlaylistEntry();">
+        <input id= "btnNext" type="button"  class ="buttons"value="Next" onClick="NextPlaylistEntry();">
         <input id= "btnStopGracefully" type="button"  class ="buttons"value="Stop Gracefully" onClick="StopGracefully();">
         <input id= "btnStopNow" type="button" class ="buttons" value="Stop Now" onClick="StopNow();">
        </div>

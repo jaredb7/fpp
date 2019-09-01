@@ -216,24 +216,17 @@ function SetSetting()
             exec(   $SUDO . " cp /opt/fpp/etc/blacklist-native-wifi.conf /etc/modprobe.d", $output, $return_val );
         }
     } else if ($setting == "EnableTethering") {
-        if ($value == "1") {
-            $ssid = ReadSettingFromFile("TetherSSID");
-            $psk = ReadSettingFromFile("TetherPSK");
-            if ($ssid == "") {
-                $ssid = "FPP";
-                WriteSettingToFile("TetherSSID", $ssid);
-            }
-            if ($psk == "") {
-                $psk = "Christmas";
-                WriteSettingToFile("TetherPSK", $psk);
-            }
-            exec(   $SUDO . " systemctl disable dnsmasq", $output, $return_val );
-            exec(   $SUDO . " connmanctl tether wifi on $ssid $psk", $output, $return_val );
-        } else {
-            exec(   $SUDO . " connmanctl tether wifi off", $output, $return_val );
-            exec(   $SUDO . " systemctl enable dnsmasq", $output, $return_val );
+        $ssid = ReadSettingFromFile("TetherSSID");
+        $psk = ReadSettingFromFile("TetherPSK");
+        if ($ssid == "") {
+            $ssid = "FPP";
+            WriteSettingToFile("TetherSSID", $ssid);
         }
-	} else if ($setting == "ForceHDMI") {
+        if ($psk == "") {
+            $psk = "Christmas";
+            WriteSettingToFile("TetherPSK", $psk);
+        }
+    } else if ($setting == "ForceHDMI") {
 		if ($value)
 		{
 			exec( $SUDO . " sed -i '/hdmi_force_hotplug/d' /boot/config.txt; " .
@@ -246,6 +239,8 @@ function SetSetting()
 				$SUDO . " sed -i '\$a#hdmi_force_hotplug=1' /boot/config.txt",
 				$output, $return_val);
 		}
+    } else if ($setting == "BBBLeds0" || $setting == "BBBLeds1" || $setting == "BBBLeds2" || $setting == "BBBLeds3" || $setting == "BBBLedPWR") {
+        SetBBBLeds();
 	} else {
 		SendCommand("SetSetting,$setting,$value,");
 	}
@@ -2209,6 +2204,13 @@ function GetSystemInfoJsonInternal($return_array = false, $simple = false)
 		returnJSON($result);
 	}
 }
+    
+function SetBBBLeds() {
+    file_put_contents("/tmp/setBBBLeds", "#!/bin/bash\n. /opt/fpp/scripts/common\n. /opt/fpp/scripts/functions\n configureBBBLeds");
+    shell_exec("sudo bash /tmp/setBBBLeds");
+    unlink("/tmp/setBBBLeds");
+}
+    
 
 /////////////////////////////////////////////////////////////////////////////
 

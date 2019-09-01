@@ -23,39 +23,46 @@ var minimalUI = 0;
 var statusTimeout = null;
 var lastStatus = '';
 
+
+function versionToNumber(version)
+{
+    // convert a version string like 2.7.1-2-dirty to "20701"
+    if (version.charAt(0) == 'v') {
+        version = version.substr(1);
+    }
+    if (version.indexOf("-") != -1) {
+        version = version.substr(0, version.indexOf("-"));
+    }
+    var parts = version.split('.');
+    
+    while (parts.length < 3) {
+        parts.push("0");
+    }
+    var number = 0;
+    for (var x = 0; x < 3; x++) {
+        var val = parseInt(parts[x]);
+        if (val >= 9990) {
+            return number * 10000 + 9999;
+        } else if (val > 99) {
+            val = 99;
+        }
+        number = number * 100 + val;
+    }
+    return number;
+}
+
 // Compare two version numbers
 function CompareFPPVersions(a, b) {
 	// Turn any non-string version numbers into a string
 	a = "" + a;
 	b = "" + b;
+    a = versionToNumber(a);
+    b = versionToNumber(b);
 
-	if (a.indexOf(".") == -1)
-		a += ".0";
-	if (b.indexOf(".") == -1)
-		b += ".0";
-
-	var intA = parseInt(a.split(".")[0]);
-	var intB = parseInt(b.split(".")[0]);
-
-	if (intA > intB)
-	{
+	if (a > b) {
 		return 1;
-	}
-	else if (intA < intB)
-	{
+	} else if (a < b) {
 		return -1;
-	}
-	else
-	{
-		var decA = parseInt(a.split(".")[1]);
-		var decB = parseInt(b.split(".")[1]);
-
-		if (decA > decB)
-			return 1;
-		else if (decA < decB)
-			return -1;
-		else
-			return 0;
 	}
 
 	return 0;
@@ -278,8 +285,13 @@ function PlaylistEntryToTR(i, entry, editMode)
 	}
 	else if(entry.type == 'plugin')
 		HTML += GetPlaylistRowHTML((i+1).toString(), "Plugin", "---", "", entry.data, editMode);
-	else if(entry.type == 'script')
-		HTML += GetPlaylistRowHTML((i+1).toString(), "Script", entry.scriptName, entry.scriptArgs, "", i.toString(), editMode);
+    else if(entry.type == 'script') {
+        var blocking = "No Wait";
+        if (entry.blocking) {
+            blocking = "Wait";
+        }
+		HTML += GetPlaylistRowHTML((i+1).toString(), "Script", entry.scriptName, entry.scriptArgs, blocking, i.toString(), editMode);
+    }
 
 	return HTML;
 }
@@ -592,6 +604,7 @@ function AddPlaylistEntry() {
 			{
 				entry.scriptName =  encodeURIComponent($('#selScript').val());
 				entry.scriptArgs =  encodeURIComponent($('#selScript_args').val());
+                entry.blocking = $('#selScript_blocking').prop('checked');;
 			}
 			else if (entry.type == 'mqtt')
 			{
@@ -739,6 +752,10 @@ function ConvertV1Config(configType) {
 
 function SavePlaylist(filter, callback)	{
 	var name=document.getElementById("txtPlaylistName");
+    if (name.value == "") {
+        alert("Playlist name cannot be empty");
+        return;
+    }
     var xmlhttp=new XMLHttpRequest();
 	var url = "fppjson.php?command=savePlaylist&name=" + name.value;
 	xmlhttp.open("GET",url,false);
@@ -1122,11 +1139,15 @@ function RemovePlaylistEntry()	{
                 
                 var tbody=document.getElementById("tblUniversesBody");  //get the table
                 var origRow = tbody.rows[selectIndex];
+                var origUniverseCount = UniverseCount;
                 while (UniverseCount < count) {
                     var row = origRow.cloneNode(true);
                     tbody.appendChild(row);
-                    SetUniverseInputNames();
-
+                    UniverseCount++;
+                }
+                UniverseCount =  origUniverseCount;
+                SetUniverseInputNames();
+                while (UniverseCount < count) {
                     if (universe != 0) {
                         universe += ucount;
                         document.getElementById("txtUniverse[" + UniverseCount + "]").value = universe;
@@ -1384,6 +1405,7 @@ function RemovePlaylistEntry()	{
                 for(i = UniverseSelected; i < UniverseCount; i++, selectedIndex++) {
                     
                     document.getElementById("txtUniverse[" + selectedIndex + "]").value = document.getElementById("txtUniverse[" + i + "]").value
+                    document.getElementById("txtDesc[" + selectedIndex + "]").value = document.getElementById("txtDesc[" + i + "]").value
                     document.getElementById("universeType[" + selectedIndex + "]").value = document.getElementById("universeType[" + i + "]").value;
                     var universeType = document.getElementById("universeType[" + selectedIndex + "]").value;
                     document.getElementById("txtStartAddress[" + selectedIndex + "]").value  = document.getElementById("txtStartAddress[" + i + "]").value;
@@ -1416,6 +1438,7 @@ function RemovePlaylistEntry()	{
 				if((UniverseSelected + cloneNumber -1) < UniverseCount)
 				{
 					var universe=Number(document.getElementById("txtUniverse[" + selectIndex + "]").value)+1;
+                    var universeDesc=document.getElementById("txtDesc[" + selectIndex + "]").value;
 					var universeType=document.getElementById("universeType[" + selectIndex + "]").value;
 					var unicastAddress=document.getElementById("txtIP[" + selectIndex + "]").value;
 					var size=Number(document.getElementById("txtSize[" + selectIndex + "]").value);
@@ -1426,10 +1449,11 @@ function RemovePlaylistEntry()	{
 
 					for(i=UniverseSelected;i<UniverseSelected+cloneNumber;i++,universe++)
 					{
-						document.getElementById("txtUniverse[" + i + "]").value	 = universe.toString();
-						document.getElementById("universeType[" + i + "]").value	 = universeType;
-						document.getElementById("txtStartAddress[" + i + "]").value	 = startAddress.toString();
-                        document.getElementById("numUniverseCount[" + i + "]").value     = uCount.toString();
+                        document.getElementById("txtDesc[" + i + "]").value = universeDesc;
+						document.getElementById("txtUniverse[" + i + "]").value	= universe.toString();
+						document.getElementById("universeType[" + i + "]").value = universeType;
+						document.getElementById("txtStartAddress[" + i + "]").value	= startAddress.toString();
+                        document.getElementById("numUniverseCount[" + i + "]").value = uCount.toString();
 						document.getElementById("chkActive[" + i + "]").value = active;
 						document.getElementById("txtSize[" + i + "]").value = size.toString();
 						document.getElementById("txtIP[" + i + "]").value = unicastAddress;
@@ -1710,6 +1734,8 @@ function RemovePlaylistEntry()	{
 									var dayChecked_11 =  day == 11  ? "selected" : "";
 									var dayChecked_12 =  day == 12  ? "selected" : "";
 									var dayChecked_13 =  day == 13  ? "selected" : "";
+									var dayChecked_14 =  day == 14  ? "selected" : "";
+									var dayChecked_15 =  day == 15  ? "selected" : "";
 									var dayChecked_0x10000 = day >= 0x10000 ? "selected" : "";
 									var dayMaskStyle = day >= 0x10000 ? "" : "display: none;";
 
@@ -1742,6 +1768,8 @@ function RemovePlaylistEntry()	{
 															      "<option value=\"11\" " + dayChecked_11 + ">Tues/Thurs</option>" +
 															      "<option value=\"12\" " + dayChecked_12 + ">Sun-Thurs</option>" +
 															      "<option value=\"13\" " + dayChecked_13 + ">Fri/Sat</option>" +
+															      "<option value=\"14\" " + dayChecked_14 + ">Odd</option>" +
+															      "<option value=\"15\" " + dayChecked_15 + ">Even</option>" +
 															      "<option value=\"65536\" " + dayChecked_0x10000 + ">Day Mask</option></select><br>" +
 																  "<span id='dayMask[" + i + "]' style='" + dayMaskStyle + "'>" +
 																  "S:<input type='checkbox' name='maskSunday[" + i + "]'" +
@@ -2148,7 +2176,9 @@ function RemovePlaylistEntry()	{
 								
 				// Enable Play
 				SetButtonState('#btnPlay','enable');
-				SetButtonState('#btnStopNow','disable');
+                SetButtonState('#btnStopNow','disable');
+                SetButtonState('#btnPrev','disable');
+				SetButtonState('#btnNext','disable');
 				SetButtonState('#btnStopGracefully','disable');
 				$('#selStartPlaylist').removeAttr("disabled");
 				UpdateCurrentEntryPlaying(0);
@@ -2171,6 +2201,8 @@ function RemovePlaylistEntry()	{
 
 				SetButtonState('#btnPlay','disable');
 				SetButtonState('#btnStopNow','enable');
+                SetButtonState('#btnPrev','enable');
+                SetButtonState('#btnNext','enable');
 				SetButtonState('#btnStopGracefully','enable');
 				$('#selStartPlaylist').attr("disabled");
 
@@ -2204,6 +2236,8 @@ if (1) {
                 //only playing a sequence
                 var playerStatusText = "Playing <strong>'" + jsonStatus.current_sequence + "'</strong>";
                 SetButtonState('#btnPlay','disable');
+                SetButtonState('#btnPrev','enable');
+                SetButtonState('#btnNext','enable');
                 SetButtonState('#btnStopNow','enable');
                 SetButtonState('#btnStopGracefully','disable');
                 

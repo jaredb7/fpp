@@ -52,6 +52,7 @@
 #include "mediaoutput/mediaoutput.h"
 #include "sensors/Sensors.h"
 #include "PixelOverlay.h"
+#include "Plugins.h"
 
 
 /*
@@ -68,6 +69,8 @@ APIServer::~APIServer()
 {
 	m_ws->sweet_kill();
 	m_ws->stop();
+
+    PluginManager::INSTANCE.unregisterApis(m_ws);
 
 	m_ws->unregister_resource("/fppd");
     m_ws->unregister_resource("/models");
@@ -92,6 +95,8 @@ void APIServer::Init(void)
 	m_ws->register_resource("/fppd", m_pr, true);
     m_ws->register_resource("/models", &PixelOverlayManager::INSTANCE, true);
     m_ws->register_resource("/overlays", &PixelOverlayManager::INSTANCE, true);
+    
+    PluginManager::INSTANCE.registerApis(m_ws);
 
 	m_ws->start(false);
 }
@@ -195,7 +200,7 @@ const http_response PlayerResource::render_GET(const http_request &req)
 	else if (url == "testing")
 	{
 		LogDebug(VB_HTTP, "API - Getting test mode status\n");
-		result["config"] = JSONStringToObject(channelTester->GetConfig().c_str());
+		result["config"] = JSONStringToObject(ChannelTester::INSTANCE.GetConfig().c_str());
 		SetOKResult(result, "");
 	}
 	else
@@ -622,7 +627,7 @@ void PlayerResource::GetCurrentStatus(Json::Value &result)
     result["mode"] = mode;
     result["mode_name"] = toStdStringAndFree(modeToString(getFPPmode()));
     result["status"] = FPPstatus;
-    result["status_name"] = channelTester->Testing() ? "testing" : (FPPstatus == 0 ? "idle" : (FPPstatus == 1 ? "playing" : "stopping gracefully"));
+    result["status_name"] = ChannelTester::INSTANCE.Testing() ? "testing" : (FPPstatus == 0 ? "idle" : (FPPstatus == 1 ? "playing" : "stopping gracefully"));
     result["volume"] = getVolume();
 
     auto t = std::time(nullptr);
@@ -632,6 +637,7 @@ void PlayerResource::GetCurrentStatus(Json::Value &result)
     std::string str = sstr.str();
     result["time"] = str;
     
+    Sensors::INSTANCE.reportSensors(result);
     if (mode == 1) {
         //bridge mode only returns the base information
         return;
@@ -731,6 +737,9 @@ void PlayerResource::GetCurrentStatus(Json::Value &result)
             currentSeq = pl["currentEntry"]["sequenceName"].asString();
             secsElapsed = sequence->m_seqSecondsElapsed;
             secsRemaining = sequence->m_seqSecondsRemaining;
+        } else if (pl["currentEntry"]["type"] == "script") {
+            currentSeq = pl["currentEntry"]["scriptFilename"].asString();
+            secsElapsed = pl["currentEntry"]["secondsElapsed"].asInt();
         } else {
             secsElapsed = pl["currentEntry"]["type"].asString() == "pause" ? pl["currentEntry"]["duration"].asInt() - pl["currentEntry"]["remaining"].asInt() : 0;
             secsRemaining = pl["currentEntry"]["type"].asString() == "pause" ? pl["currentEntry"]["remaining"].asInt() : 0;
@@ -743,7 +752,6 @@ void PlayerResource::GetCurrentStatus(Json::Value &result)
         result["time_elapsed"] = secondsToTime(secsElapsed);
         result["time_remaining"] = secondsToTime(secsRemaining);
     }
-    Sensors::INSTANCE.reportSensors(result);
 }
 
 /*
@@ -951,7 +959,7 @@ void PlayerResource::PostTesting(const Json::Value data, Json::Value &result)
 	Json::FastWriter fastWriter;
 	std::string config = fastWriter.write(data);
 
-	if (channelTester->SetupTest(config))
+	if (ChannelTester::INSTANCE.SetupTest(config))
 	{
 		SetOKResult(result, "Test Mode Activated");
 	}

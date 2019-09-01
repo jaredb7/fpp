@@ -33,13 +33,13 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "channeloutputthread.h"
 #include "common.h"
 #include "log.h"
 #include "mpg123.h"
 #include "MultiSync.h"
 #include "Sequence.h"
 #include "settings.h"
+#include "../channeloutput/channeloutputthread.h"
 
 /*
  *
@@ -75,7 +75,7 @@ int mpg123Output::Start(void)
 	fullAudioPath += "/";
 	fullAudioPath += m_mediaFilename;
 
-	if (!FileExists(fullAudioPath.c_str()))
+	if (!FileExists(fullAudioPath))
 	{
 		LogErr(VB_MEDIAOUT, "%s does not exist!\n", fullAudioPath.c_str());
 		return 0;
@@ -87,7 +87,7 @@ int mpg123Output::Start(void)
 	{
 		mp3Player = MPG123_BINARY;
 	}
-	else if (!FileExists(mp3Player.c_str()))
+	else if (!FileExists(mp3Player))
 	{
 		LogDebug(VB_MEDIAOUT, "Configured mp3Player %s does not exist, "
 			"falling back to %s\n", mp3Player.c_str(), MPG123_BINARY);
@@ -160,12 +160,18 @@ int mpg123Output::Stop(void)
 
 	pthread_mutex_lock(&m_outputLock);
 
-	if(m_childPID > 0)
-	{
-		pid_t childPID = m_childPID;
-
+	if (m_childPID > 0) {
+        int count = 0;
+        //try to let it exit cleanly first
+        kill(m_childPID, SIGTERM);
+        while (isChildRunning() && count < 25) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            count++;
+        }
+        if (isChildRunning()) {
+            kill(m_childPID, SIGKILL);
+        }
 		m_childPID = 0;
-		kill(childPID, SIGKILL);
 	}
 
 	pthread_mutex_unlock(&m_outputLock);
@@ -232,7 +238,7 @@ void mpg123Output::ParseTimes(void)
 
 	if (getFPPmode() == MASTER_MODE)
 	{
-        multiSync->SendMediaSyncPacket(m_mediaFilename.c_str(), 0,
+        multiSync->SendMediaSyncPacket(m_mediaFilename,
 				m_mediaOutputStatus->mediaSeconds);
 	}
 
@@ -443,6 +449,11 @@ void mpg123Output::ProcessMP3Data(int bytesRead)
 
 void mpg123Output::PollMusicInfo(void)
 {
+    if (!isChildRunning()) {
+        Stop();
+        return;
+    }
+    
 	int bytesRead;
 	int result;
 	struct timeval mpg123_timeout;

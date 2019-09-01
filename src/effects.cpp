@@ -30,10 +30,10 @@
 
 #include "common.h"
 #include "effects.h"
-#include "channeloutputthread.h"
 #include "log.h"
 #include "Sequence.h"
 #include "settings.h"
+#include "channeloutput/channeloutputthread.h"
 #include "fseq/FSEQFile.h"
 
 
@@ -300,7 +300,7 @@ int OverlayEffect(int effectID, char *channelData)
     }
     e->currentFrame++;
     if (d) {
-        d->readFrame((uint8_t*)channelData);
+        d->readFrame((uint8_t*)channelData, FPPD_MAX_CHANNELS);
         delete d;
         return 1;
     }

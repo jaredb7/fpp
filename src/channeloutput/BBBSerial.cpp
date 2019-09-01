@@ -40,11 +40,21 @@
 #include "common.h"
 #include "log.h"
 #include "BBBSerial.h"
-#include "BBBUtils.h"
 #include "settings.h"
+
+#include "util/BBBUtils.h"
+
 
 //reserve the TOP 84K for DMX/PixelNet data
 #define DDR_RESERVED 84*1024
+
+
+extern "C" {
+    BBBSerialOutput *createOutputBBBSerial(unsigned int startChannel,
+                                  unsigned int channelCount) {
+        return new BBBSerialOutput(startChannel, channelCount);
+    }
+}
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -80,17 +90,23 @@ BBBSerialOutput::~BBBSerialOutput()
 
 
 static void compileSerialPRUCode(std::vector<std::string> &sargs) {
+
     pid_t compilePid = fork();
     if (compilePid == 0) {
+        std::string log;
         char * args[sargs.size() + 3];
         args[0] = (char *)"/bin/bash";
         args[1] = (char *)"/opt/fpp/src/pru/compileSerial.sh";
+
+        log = args[1];
         
         for (int x = 0; x < sargs.size(); x++) {
             args[x + 2] = (char*)sargs[x].c_str();
+            log += " " + sargs[x];
         }
         args[sargs.size() + 2] = NULL;
-        
+        LogDebug(VB_CHANNELOUT, "BBBSerial::compilePRUCode() args: %s\n", log.c_str());
+
         execvp("/bin/bash", args);
     } else {
         wait(NULL);
@@ -194,14 +210,14 @@ int BBBSerialOutput::Init(Json::Value config)
         
         maxOut = root["serial"].size();
         for (int x = 0; x < root["serial"].size(); x++)  {
-            const PinCapabilities &pin = getBBBPinByName(root["serial"][x]["pin"].asString());
+            const PinCapabilities &pin = PinCapabilities::getPinByName(root["serial"][x]["pin"].asString());
             if (m_startChannels[x] >= 0) {
                 pin.configPin(mode);
                 countOut++;
             }
-            outputFile << "#define ser" << std::to_string(x + 1) << "_gpio  " << std::to_string(pin.gpio) << "\n";
-            outputFile << "#define ser" << std::to_string(x + 1) << "_pin  " << std::to_string(pin.pin) << "\n\n";
-            outputFile << "#define ser" << std::to_string(x + 1) << "_pru30  " << std::to_string(pin.prupin) << "\n\n";
+            outputFile << "#define ser" << std::to_string(x + 1) << "_gpio  " << std::to_string(pin.gpioIdx) << "\n";
+            outputFile << "#define ser" << std::to_string(x + 1) << "_pin  " << std::to_string(pin.gpio) << "\n\n";
+            outputFile << "#define ser" << std::to_string(x + 1) << "_pru30  " << std::to_string(pin.pruPin) << "\n\n";
         }
         
         outputFile.close();

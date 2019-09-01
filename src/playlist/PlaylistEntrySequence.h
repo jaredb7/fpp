@@ -37,6 +37,7 @@ class PlaylistEntrySequence : public PlaylistEntryBase {
 
 	int  Init(Json::Value &config);
 
+    int  PreparePlay();
 	int  StartPlaying(void);
 	int  Process(void);
 	int  Stop(void);
@@ -44,10 +45,13 @@ class PlaylistEntrySequence : public PlaylistEntryBase {
 	void Dump(void);
 
 	Json::Value GetConfig(void);
+	Json::Value GetMqttStatus(void);
+
 
 	std::string GetSequenceName(void) { return m_sequenceName; }
 
   private:
+    bool                 m_prepared;
 	int                  m_duration;
 	long long            m_sequenceID;
 

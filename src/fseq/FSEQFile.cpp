@@ -46,12 +46,7 @@ int gettimeofday(struct timeval * tp, struct timezone * tzp)
 
 #include "FSEQFile.h"
 
-#if defined(PLATFORM_OSX)
-#define PLATFORM_UNKNOWN
-#endif
-
-
-#if defined(PLATFORM_PI) || defined(PLATFORM_BBB) || defined(PLATFORM_ODROID) || defined(PLATFORM_ORANGEPI) || defined(PLATFORM_UNKNOWN)
+#if defined(PLATFORM_PI) || defined(PLATFORM_BBB) || defined(PLATFORM_ODROID) || defined(PLATFORM_ORANGEPI) || defined(PLATFORM_UNKNOWN) || defined(PLATFORM_DOCKER)
 //for FPP, use FPP logging
 #include "log.h"
 #else
@@ -60,15 +55,36 @@ int gettimeofday(struct timeval * tp, struct timezone * tzp)
 #include <log4cpp/Category.hh>
 template<typename... Args> static void LogErr(int i, const char *fmt, Args... args) {
     static log4cpp::Category &fseq_logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    fseq_logger_base.error(fmt, args...);
+    char buf[256];
+    const char *nfmt = fmt;
+    if (nfmt[strlen(nfmt) - 1] == '\n') {
+        strcpy(buf, fmt);
+        buf[strlen(nfmt) - 1] = 0;
+        nfmt = buf;
+    }
+    fseq_logger_base.error(nfmt, args...);
 }
 template<typename... Args> static void LogInfo(int i, const char *fmt, Args... args) {
     static log4cpp::Category &fseq_logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    fseq_logger_base.info(fmt, args...);
+    char buf[256];
+    const char *nfmt = fmt;
+    if (nfmt[strlen(nfmt) - 1] == '\n') {
+        strcpy(buf, fmt);
+        buf[strlen(nfmt) - 1] = 0;
+        nfmt = buf;
+    }
+    fseq_logger_base.info(nfmt, args...);
 }
 template<typename... Args> static void LogDebug(int i, const char *fmt, Args... args) {
     static log4cpp::Category &fseq_logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    fseq_logger_base.debug(fmt, args...);
+    char buf[256];
+    const char *nfmt = fmt;
+    if (nfmt[strlen(nfmt) - 1] == '\n') {
+        strcpy(buf, fmt);
+        buf[strlen(nfmt) - 1] = 0;
+        nfmt = buf;
+    }
+    fseq_logger_base.debug(nfmt, args...);
 }
 #define VB_SEQUENCE 1
 #define VB_ALL 0
@@ -496,24 +512,36 @@ public:
                           uint32_t sz,
                           const std::vector<std::pair<uint32_t, uint32_t>> &ranges)
     : FrameData(frame), m_ranges(ranges) {
+        m_size = sz;
         m_data = (uint8_t*)malloc(sz);
     }
     virtual ~UncompressedFrameData() {
-        free(m_data);
-    }
-
-    virtual void readFrame(uint8_t *data) {
-        uint32_t offset = 0;
-        for (auto &rng : m_ranges) {
-            uint32_t toRead = rng.second;
-            memcpy(&data[rng.first], &m_data[offset], toRead);
-            offset += toRead;
+        if (m_data != nullptr) {
+            free(m_data);
         }
     }
 
+    virtual bool readFrame(uint8_t *data, uint32_t maxChannels) {
+        if (m_data == nullptr) return false;
+        uint32_t offset = 0;
+        for (auto &rng : m_ranges) {
+            uint32_t toRead = rng.second;
+            if (offset + toRead <= m_size) {
+                uint32_t toCopy = std::min(toRead, maxChannels - rng.first);
+                memcpy(&data[rng.first], &m_data[offset], toCopy);
+                offset += toRead;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    uint32_t m_size;
     uint8_t *m_data;
     std::vector<std::pair<uint32_t, uint32_t>> m_ranges;
 };
+
 void V1FSEQFile::prepareRead(const std::vector<std::pair<uint32_t, uint32_t>> &ranges) {
     m_rangesToRead = ranges;
     m_dataBlockSize = 0;
@@ -726,6 +754,22 @@ public:
         uint64_t off = V2FSEQ_HEADER_SIZE;
         seek(off, SEEK_SET);
         int count = m_file->m_frameOffsets.size();
+        if (count == 0) {
+            //not good, count should never be 0 unless no frames were written,
+            //this really should never happen, but I've seen fseq files without the
+            //blocks filled in so I know it DOES happen, just haven't figured out
+            //how it's possible yet.
+            LogErr(VB_SEQUENCE, "Error writing fseq file.  No compressed blocks created.\n");
+            
+            //we'll use the offset to the data for the 0 frame
+            seek(0, SEEK_SET);
+            uint8_t header[10];
+            read(header, 10);
+            int seqChanDataOffset = read2ByteUInt(&header[4]);
+            seek(off, SEEK_SET);
+            m_file->m_frameOffsets.push_back(std::pair<uint32_t, uint64_t>(0, seqChanDataOffset));
+            count++;
+        }
         m_file->m_frameOffsets.push_back(std::pair<uint32_t, uint64_t>(99999999, curr));
         for (int x = 0 ; x < count; x++) {
             uint8_t buf[8];
@@ -764,13 +808,14 @@ public:
         m_inBuffer.src = nullptr;
         m_inBuffer.size = 0;
         m_inBuffer.pos = 0;
+        LogDebug(VB_SEQUENCE, "  Prepared to write a ZSTD compress fseq file.\n");
     }
     virtual ~V2ZSTDCompressionHandler() {
         free(m_outBuffer.dst);
         if (m_inBuffer.src != nullptr) {
             free((void*)m_inBuffer.src);
         }
-        if (m_dctx) {
+        if (m_cctx) {
             ZSTD_freeCStream(m_cctx);
         }
         if (m_dctx) {
@@ -818,17 +863,16 @@ public:
             }
 
             free(m_outBuffer.dst);
-            m_numFramesInBlock = (m_file->m_frameOffsets[m_curBlock + 1].first > m_file->getNumFrames() ? m_file->getNumFrames() :  m_file->m_frameOffsets[m_curBlock + 1].first) - m_file->m_frameOffsets[m_curBlock].first;
-            m_outBuffer.size = m_numFramesInBlock * m_file->getChannelCount();
+            m_framesPerBlock = (m_file->m_frameOffsets[m_curBlock + 1].first > m_file->getNumFrames() ? m_file->getNumFrames() :  m_file->m_frameOffsets[m_curBlock + 1].first) - m_file->m_frameOffsets[m_curBlock].first;
+            m_outBuffer.size = m_framesPerBlock * m_file->getChannelCount();
             m_outBuffer.dst = malloc(m_outBuffer.size);
             m_outBuffer.pos = 0;
             m_curFrameInBlock = 0;
-            
         }
         int fidx = frame - m_file->m_frameOffsets[m_curBlock].first;
+
         if (fidx >= m_curFrameInBlock) {
             m_outBuffer.size = (fidx + 1) * m_file->getChannelCount();
-            int opos = m_outBuffer.pos;
             ZSTD_decompressStream(m_dctx, &m_outBuffer, &m_inBuffer);
             m_curFrameInBlock = fidx + 1;
         }
@@ -836,6 +880,15 @@ public:
         fidx *= m_file->getChannelCount();
         uint8_t *fdata = (uint8_t*)m_outBuffer.dst;
         UncompressedFrameData *data = new UncompressedFrameData(frame, m_file->m_dataBlockSize, m_file->m_rangesToRead);
+
+        // This stops the crash on load ... but it is not the root cause.
+        // But better to not load completely than crashing
+        if (fidx < 0) {
+            // this is not going to end well ... best to give up here
+            LogErr(VB_SEQUENCE, "Frame index calculated as a negative number. Aborting frame %d load.\n", (int)frame);
+            return data;
+        }
+
         if (!m_file->m_sparseRanges.empty()) {
             memcpy(data->m_data, &fdata[fidx], m_file->getChannelCount());
         } else {
@@ -876,9 +929,10 @@ public:
         }
         if (m_curFrameInBlock == 0) {
             uint64_t offset = tell();
+            //LogDebug(VB_SEQUENCE, "  Preparing to create a compressed block of data starting at frame %d, offset  %" PRIu64 ".\n", frame, offset);
             m_file->m_frameOffsets.push_back(std::pair<uint32_t, uint64_t>(frame, offset));
-            int clevel = m_file->m_compressionLevel == -1 ? 10 : m_file->m_compressionLevel;
-            if (clevel < 0 || clevel > 25) {
+            int clevel = m_file->m_compressionLevel == -99 ? 10 : m_file->m_compressionLevel;
+            if (clevel < -25 || clevel > 25) {
                 clevel = 10;
             }
             if (frame == 0 && (ZSTD_versionNumber() > 10305)) {
@@ -888,6 +942,9 @@ public:
                 // for the first block so the decompression can
                 // be as fast as possible
                 clevel = -10;
+            }
+            if (ZSTD_versionNumber() <= 10305 && clevel < 0) {
+                clevel = 0;
             }
             ZSTD_initCStream(m_cctx, clevel);
         }
@@ -922,12 +979,13 @@ public:
         //we'll start a new block.  We want the first block to be small so startup is
         //quicker and we can get the first few frames as fast as possible.
         if ((m_curBlock == 0 && m_curFrameInBlock == 10)
-            || (m_curFrameInBlock == m_framesPerBlock && m_file->m_frameOffsets.size() < m_maxBlocks)) {
+            || (m_curFrameInBlock >= m_framesPerBlock && m_file->m_frameOffsets.size() < m_maxBlocks)) {
             while(ZSTD_endStream(m_cctx, &m_outBuffer) > 0) {
                 write(m_outBuffer.dst, m_outBuffer.pos);
                 m_outBuffer.pos = 0;
             }
             write(m_outBuffer.dst, m_outBuffer.pos);
+            //LogDebug(VB_SEQUENCE, "  Finalized block of data ending at frame %d.  Frames in block: %d.\n", frame, m_curFrameInBlock);
             m_outBuffer.pos = 0;
             m_curFrameInBlock = 0;
             m_curBlock++;
@@ -940,6 +998,7 @@ public:
                 m_outBuffer.pos = 0;
             }
             write(m_outBuffer.dst, m_outBuffer.pos);
+            LogDebug(VB_SEQUENCE, "  Finalized last block of data.  Frames in block: %d.\n", m_curFrameInBlock);
             m_outBuffer.pos = 0;
             m_curFrameInBlock = 0;
             m_curBlock++;
@@ -951,8 +1010,6 @@ public:
     ZSTD_DStream* m_dctx;
     ZSTD_outBuffer_s m_outBuffer;
     ZSTD_inBuffer_s m_inBuffer;
-    int m_numFramesInBlock;
-    int m_curFrameInBlock;
 };
 #endif
 
@@ -1051,7 +1108,7 @@ public:
             memset(m_stream, 0, sizeof(z_stream));
         }
         if (m_curFrameInBlock == 0) {
-            int clevel = m_file->m_compressionLevel == -1 ? 3 : m_file->m_compressionLevel;
+            int clevel = m_file->m_compressionLevel == -99 ? 3 : m_file->m_compressionLevel;
             if (clevel < 0 || clevel > 9) {
                 clevel = 3;
             }
@@ -1351,15 +1408,16 @@ void V2FSEQFile::dumpInfo(bool indent) {
     LogDebug(VB_SEQUENCE, "%sSequence File Information\n", ind);
     LogDebug(VB_SEQUENCE, "%scompressionType       : %d\n", ind, m_compressionType);
     LogDebug(VB_SEQUENCE, "%snumBlocks             : %d\n", ind, m_handler->computeMaxBlocks());
-    for (auto &a : m_frameOffsets) {
-        LogDebug(VB_SEQUENCE, "%s      %d              : %" PRIu64 "\n", ind, a.first, a.second);
-    }
+    // Commented out to declutter the logs ... we can add it back in if we start seeing issues
+    //for (auto &a : m_frameOffsets) {
+    //    LogDebug(VB_SEQUENCE, "%s      %d              : %" PRIu64 "\n", ind, a.first, a.second);
+    //}
     LogDebug(VB_SEQUENCE, "%snumRanges             : %d\n", ind, m_sparseRanges.size());
-    for (auto &a : m_sparseRanges) {
-        LogDebug(VB_SEQUENCE, "%s      Start: %d    Len: %d\n", ind, a.first, a.second);
-    }
+    // Commented out to declutter the logs ... we can add it back in if we start seeing issues
+    //for (auto &a : m_sparseRanges) {
+    //    LogDebug(VB_SEQUENCE, "%s      Start: %d    Len: %d\n", ind, a.first, a.second);
+    //}
 }
-
 
 void V2FSEQFile::prepareRead(const std::vector<std::pair<uint32_t, uint32_t>> &ranges) {
     if (m_sparseRanges.empty()) {

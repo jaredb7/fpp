@@ -53,53 +53,6 @@ MediaOutputStatus mediaOutputStatus = {
 	MEDIAOUTPUTSTATUS_IDLE, //status
 	};
 
-void MediaOutput_sigchld_handler(int signal)
-{
-	int status;
-	pid_t p = waitpid(-1, &status, WNOHANG);
-
-	pthread_mutex_lock(&mediaOutputLock);
-	if (!mediaOutput) {
-		pthread_mutex_unlock(&mediaOutputLock);
-		return;
-	}
-
-	LogDebug(VB_MEDIAOUT,
-		"MediaOutput_sigchld_handler(): pid: %d, waiting for %d\n",
-		p, mediaOutput->m_childPID);
-
-	if (p == mediaOutput->m_childPID)
-	{
-		mediaOutput->Close();
-		mediaOutput->m_childPID = 0;
-
-		pthread_mutex_unlock(&mediaOutputLock);
-
-        
-        if (getFPPmode() != REMOTE_MODE)  {
-            if ((sequence->m_seqMSRemaining > 0) &&
-                (sequence->m_seqMSRemaining < 2000)) {
-                usleep(sequence->m_seqMSRemaining * 1000);
-            }
-
-            // Always sleep an extra 100ms to let the sequence finish since playlist watches the media output
-            if (sequence->IsSequenceRunning())
-            usleep(100000);
-        }
-
-
-		mediaOutputStatus.status = MEDIAOUTPUTSTATUS_IDLE;
-		CloseMediaOutput();
-
-        //don't close the sequence in remote mode, a separate stop will come from the master for that
-		if (getFPPmode() != REMOTE_MODE && sequence->IsSequenceRunning())
-			sequence->CloseSequenceFile();
-
-	} else {
-		pthread_mutex_unlock(&mediaOutputLock);
-	}
-}
-
 /*
  *
  */
@@ -109,12 +62,10 @@ void InitMediaOutput(void)
 		LogDebug(VB_MEDIAOUT, "ERROR: Media Output mutex init failed!\n");
 	}
 
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = MediaOutput_sigchld_handler;
-	sigaction(SIGCHLD, &sa, NULL);
-
-    int vol = getSettingInt("volume");
+    int vol = getSettingInt("volume", -1);
+    if (vol < 0) {
+        vol = 70;
+    }
     setVolume(vol);
 }
 
@@ -128,7 +79,7 @@ void CleanupMediaOutput(void)
 	pthread_mutex_destroy(&mediaOutputLock);
 }
 
-static int volume = 100;
+static int volume = 70;
 int getVolume() {
     return volume;
 }
@@ -143,32 +94,27 @@ void setVolume(int vol)
         vol = 100;
     volume = vol;
 
-    const char *mixerDevice = getSetting("AudioMixerDevice");
+    const char *mixerDeviceC = getSetting("AudioMixerDevice");
+    std::string mixerDevice = "PCM";
+    if (mixerDeviceC) {
+        mixerDevice = mixerDevice;
+    }
     int   audioOutput = getSettingInt("AudioOutput");
-
-    // audioOutput is 0 on Pi where we need to apply volume adjustment formula.
-    // This may break non-Pi, non-BBB platforms, but there aren't any yet.
-    // The same assumption is made in fppxml.php SetVolume()
-    if (audioOutput == 0)
-    {
-        if (mixerDevice)
-            snprintf(buffer, 60, "amixer set %s %.2f%% >/dev/null 2>&1",
-                     mixerDevice, (50 + (volume / 2.0)));
-        else
-            snprintf(buffer, 60, "amixer set PCM %.2f%% >/dev/null 2>&1",
-                     (50 + (volume / 2.0)));
+    std::string audio0Type = getSetting("AudioCard0Type");
+    
+    float fvol = volume;
+#ifdef PLATFORM_PI
+    if (audioOutput == 0 && audio0Type == "bcm2") {
+        fvol = volume;
+        fvol /= 2;
+        fvol += 50;
     }
-    else
-    {
-        if (mixerDevice)
-            snprintf(buffer, 60, "amixer set %s %d%% >/dev/null 2>&1",
-                     mixerDevice, volume);
-        else
-            snprintf(buffer, 60, "amixer set PCM %d%% >/dev/null 2>&1",
-                     volume);
-    }
+#endif
+    snprintf(buffer, 60, "amixer set -c %d %s %.2f%% >/dev/null 2>&1",
+             audioOutput, mixerDevice.c_str(), fvol);
     
     LogDebug(VB_SETTING,"Volume change: %d \n", volume);
+    LogDebug(VB_MEDIAOUT,"Calling amixer to set the volume: %s \n", buffer);
     system(buffer);
 
     pthread_mutex_lock(&mediaOutputLock);
@@ -176,6 +122,26 @@ void setVolume(int vol)
         mediaOutput->SetVolume(volume);
     
     pthread_mutex_unlock(&mediaOutputLock);
+}
+
+static std::set<std::string> AUDIO_EXTS = {
+    "mp3", "ogg", "m4a", "m4p", "wav", "au", "wma",
+    "MP3", "OGG", "M4A", "M4P", "WAV", "AU", "WMA"
+};
+static std::map<std::string, std::string> VIDEO_EXTS = {
+    {"mp4", "mp4"}, {"MP4", "mp4"},
+    {"avi", "avi"}, {"AVI", "avi"},
+    {"mov", "mov"}, {"MOV", "mov"},
+    {"mkv", "mkv"}, {"MKV", "mkv"},
+    {"mpg", "mpg"}, {"MPG", "mpg"},
+    {"mpeg", "mpeg"}, {"MPEG", "mpeg"}
+};
+
+bool IsExtensionVideo(const std::string &ext) {
+    return VIDEO_EXTS.find(ext) != VIDEO_EXTS.end();
+}
+bool IsExtensionAudio(const std::string &ext) {
+    return AUDIO_EXTS.find(ext) != AUDIO_EXTS.end();
 }
 
 
@@ -190,7 +156,7 @@ std::string GetVideoFilenameForMedia(const std::string &filename, std::string &e
     videoPath += "/";
     videoPath += bfile;
 
-    if ((lext == "mp4") || (lext == "avi") || (lext == "mov") || (lext == "mkv")) {
+    if (IsExtensionVideo(lext)) {
         if (FileExists(videoPath + oext)) {
             ext = lext;
             result = bfile + oext;
@@ -198,42 +164,24 @@ std::string GetVideoFilenameForMedia(const std::string &filename, std::string &e
             ext = lext;
             result = bfile + lext;
         }
-    } else if ((lext == "mp3") || (lext == "ogg") || (lext == "m4a")) {
-        if (FileExists(videoPath + "mp4")) {
-            ext = "mp4";
-            result = bfile + "mp4";
-        } else if (FileExists(videoPath + "MP4")) {
-            ext = "mp4";
-            result = bfile + "MP4";
-        } else if (FileExists(videoPath + "avi")) {
-            ext = "avi";
-            result = bfile + "avi";
-        } else if (FileExists(videoPath + "AVI")) {
-            ext = "avi";
-            result = bfile + "AVI";
-        } else if (FileExists(videoPath + "mov")) {
-            ext = "mov";
-            result = bfile + "mov";
-        } else if (FileExists(videoPath + "MOV")) {
-            ext = "mov";
-            result = bfile + "MOV";
-        } else if (FileExists(videoPath + "mkv")) {
-            ext = "mkv";
-            result = bfile + "mkv";
-        } else if (FileExists(videoPath + "MKV")) {
-            ext = "mkv";
-            result = bfile + "MKV";
+    } else if (IsExtensionAudio(lext)) {
+        for (auto &n : VIDEO_EXTS) {
+            if (FileExists(videoPath + n.first)) {
+                ext = n.second;
+                result = bfile + n.first;
+                return result;
+            }
         }
     }
 
     return result;
 }
 
-bool HasVideoForMedia(char *filename) {
+bool HasVideoForMedia(std::string &filename) {
     std::string ext;
     std::string fp = GetVideoFilenameForMedia(filename, ext);
     if (fp != "") {
-        strcpy(filename, fp.c_str());
+        filename = fp;
     }
     return fp != "";
 }
@@ -243,7 +191,7 @@ static std::set<std::string> alreadyWarned;
 /*
  *
  */
-int OpenMediaOutput(char *filename) {
+int OpenMediaOutput(const char *filename) {
 	LogDebug(VB_MEDIAOUT, "OpenMediaOutput(%s)\n", filename);
 
 	pthread_mutex_lock(&mediaOutputLock);
@@ -283,7 +231,7 @@ int OpenMediaOutput(char *filename) {
 	}
 
     pthread_mutex_lock(&mediaOutputLock);
-
+    bool isOmx = false;
     std::string vOut = getSetting("VideoOutput");
     if (vOut == "") {
 #if !defined(PLATFORM_BBB)
@@ -301,24 +249,17 @@ int OpenMediaOutput(char *filename) {
 			mediaOutput = new mpg123Output(tmpFile, &mediaOutputStatus);
 		} else if (ext == "ogg") {
 			mediaOutput = new ogg123Output(tmpFile, &mediaOutputStatus);
-		}
+        }
     } else
 #endif
-    if ((ext == "mp3") ||
-        (ext == "m4a") ||
-        (ext == "ogg")) {
+    if (IsExtensionAudio(ext)) {
         mediaOutput = new SDLOutput(tmpFile, &mediaOutputStatus, "--Disabled--");
 #ifdef PLATFORM_PI
-	} else if (((ext == "mp4") ||
-                (ext == "mkv") ||
-                (ext == "mov") ||
-                (ext == "avi")) && vOut == "--HDMI--") {
+	} else if (IsExtensionVideo(ext) && vOut == "--HDMI--") {
 		mediaOutput = new omxplayerOutput(tmpFile, &mediaOutputStatus);
+        isOmx = true;
 #endif
-    } else if ((ext == "mp4") ||
-               (ext == "mkv") ||
-               (ext == "mov") ||
-               (ext == "avi")) {
+    } else if (IsExtensionVideo(ext)) {
         mediaOutput = new SDLOutput(tmpFile, &mediaOutputStatus, vOut);
 	} else {
 		pthread_mutex_unlock(&mediaOutputLock);
@@ -333,25 +274,77 @@ int OpenMediaOutput(char *filename) {
 	}
 
 	if (getFPPmode() == MASTER_MODE)
-		multiSync->SendMediaSyncStartPacket(mediaOutput->m_mediaFilename.c_str());
-
-	if (!mediaOutput->Start())
-	{
-        LogErr(VB_MEDIAOUT, "Could not start media %s\n", tmpFile);
-		delete mediaOutput;
-		mediaOutput = 0;
-		pthread_mutex_unlock(&mediaOutputLock);
-		return 0;
-	}
+		multiSync->SendMediaOpenPacket(mediaOutput->m_mediaFilename);
 
 	mediaOutputStatus.speedDelta = 0;
     mediaOutputStatus.speedDeltaCount = 0;
-
+    
+#ifdef PLATFORM_PI
+    // at this point, OMX takes a long time to actually start, we'll just start it
+    // there is a patch to add a --start-paused which we could eventually use
+    if (isOmx) {
+        if (getFPPmode() == MASTER_MODE)
+            multiSync->SendMediaSyncStartPacket(mediaOutput->m_mediaFilename);
+        if (!mediaOutput->Start()) {
+            LogErr(VB_MEDIAOUT, "Could not start media %s\n", tmpFile);
+            delete mediaOutput;
+            mediaOutput = 0;
+            pthread_mutex_unlock(&mediaOutputLock);
+            return 0;
+        }
+    }
+#endif
 	pthread_mutex_unlock(&mediaOutputLock);
 
 	return 1;
 }
+int StartMediaOutput(const char *filename) {
+    if (mediaOutput) {
+        if (strcmp(mediaOutput->m_mediaFilename.c_str(), filename)) {
+            CloseMediaOutput();
+        } else {
+            std::string tmpFile = filename;
+            if (HasVideoForMedia(tmpFile)) {
+                if (mediaOutput->m_mediaFilename != tmpFile) {
+                    CloseMediaOutput();
+                }
+            }
+        }
+    }
+#ifdef PLATFORM_PI
+    omxplayerOutput *omx = dynamic_cast<omxplayerOutput*>(mediaOutput);
+    if (omx) {
+        //its already started
+        return 1;
+    }
+#endif
+    
+    if (mediaOutput && mediaOutput->IsPlaying()) {
+        CloseMediaOutput();
+    }
+    if (!mediaOutput) {
+        OpenMediaOutput(filename);
+    }
+    if (!mediaOutput) {
+        return 0;
+    }
+    pthread_mutex_lock(&mediaOutputLock);
+    if (getFPPmode() == MASTER_MODE)
+        multiSync->SendMediaSyncStartPacket(mediaOutput->m_mediaFilename);
 
+    if (!mediaOutput->Start()) {
+        LogErr(VB_MEDIAOUT, "Could not start media %s\n", mediaOutput->m_mediaFilename.c_str());
+        delete mediaOutput;
+        mediaOutput = 0;
+        pthread_mutex_unlock(&mediaOutputLock);
+        return 0;
+    }
+    mediaOutputStatus.speedDelta = 0;
+    mediaOutputStatus.speedDeltaCount = 0;
+
+    pthread_mutex_unlock(&mediaOutputLock);
+    return 1;
+}
 void CloseMediaOutput(void) {
 	LogDebug(VB_MEDIAOUT, "CloseMediaOutput()\n");
 
@@ -371,7 +364,7 @@ void CloseMediaOutput(void) {
 	}
 
 	if (getFPPmode() == MASTER_MODE)
-		multiSync->SendMediaSyncStopPacket(mediaOutput->m_mediaFilename.c_str());
+		multiSync->SendMediaSyncStopPacket(mediaOutput->m_mediaFilename);
 
 	delete mediaOutput;
 	mediaOutput = 0;

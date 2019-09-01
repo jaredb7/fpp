@@ -71,8 +71,8 @@
 #############################################################################
 SCRIPTVER="1.0"
 FPPBRANCH=${FPPBRANCH:-"master"}
-FPPIMAGEVER="2.6"
-FPPCFGVER="31"
+FPPIMAGEVER="3.0"
+FPPCFGVER="47"
 FPPPLATFORM="UNKNOWN"
 FPPDIR=/opt/fpp
 FPPUSER=fpp
@@ -151,6 +151,8 @@ fi
 # Parse build options as arguments
 build_ola=false
 build_omxplayer=false
+clone_fpp=true
+skip_apt_install=false
 while [ -n "$1" ]; do
 	case $1 in
 		--build-ola)
@@ -159,6 +161,14 @@ while [ -n "$1" ]; do
 			;;
 		--build-omxplayer)
 			build_omxplayer=true
+			shift
+			;;
+		--skip-clone)
+			clone_fpp=false
+			shift
+			;;
+		--skip-apt-install)
+			skip_apt_install=true
 			shift
 			;;
 		*)
@@ -299,14 +309,6 @@ echo "LANG=en_US.UTF-8" > /etc/default/locale
 echo "FPP - Checking for existence of /opt"
 cd /opt 2> /dev/null || mkdir /opt
 
-#######################################
-# Remove old /opt/fpp if it exists
-if [ -e "/opt/fpp" ]
-then
-	echo "FPP - Removing old /opt/fpp"
-	rm -rf /opt/fpp
-fi
-
 
 #######################################
 # Make sure dependencies are installed
@@ -314,7 +316,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 case "${OSVER}" in
-	debian_9)
+	debian_9 | debian_10)
 		case $FPPPLATFORM in
 			'CHIP'|'BeagleBone Black')
 				echo "FPP - Skipping non-free for $FPPPLATFORM"
@@ -328,7 +330,7 @@ case "${OSVER}" in
 
 		echo "FPP - Marking unneeded packages for removal to save space"
 		case "${OSVER}" in
-			debian_9)
+			debian_9 | debian_10)
 				systemctl disable network-manager.service
 
 				# This list is based on the Stretch Lite SD image which we base our image on
@@ -338,6 +340,7 @@ case "${OSVER}" in
 				done
 				;;
 		esac
+        apt autoremove
 
 		echo "FPP - Make things cleaner by removing unneeded packages"
 		dpkg --get-selections | grep deinstall | while read package deinstall; do
@@ -353,8 +356,8 @@ case "${OSVER}" in
 		echo "FPP - Upgrading apt if necessary"
 		apt-get install --only-upgrade apt
 
-		echo "FPP - Sleeping 60 seconds to make sure any apt upgrade is quiesced"
-		sleep 60
+		echo "FPP - Sleeping 5 seconds to make sure any apt upgrade is quiesced"
+		sleep 5
 
 		echo "FPP - Upgrading other installed packages"
 		apt-get -y upgrade
@@ -367,20 +370,22 @@ case "${OSVER}" in
 		# Install 10 packages, then clean to lower total disk space required
 		PACKAGE_LIST=""
 		case "${OSVER}" in
-			debian_9)
+			debian_9 | debian_10)
 				PACKAGE_LIST="alsa-base alsa-utils arping avahi-daemon \
-								apache2 apache2-bin apache2-data apache2-utils libapache2-mod-php7.0 \
+								apache2 apache2-bin apache2-data apache2-utils \
 								zlib1g-dev libpcre3 libpcre3-dev libbz2-dev libssl-dev \
 								avahi-discover avahi-utils bash-completion bc btrfs-tools build-essential \
 								bzip2 ca-certificates ccache connman curl device-tree-compiler \
 								dh-autoreconf ethtool exfat-fuse fbi fbset file flite gdb \
-								gdebi-core git hdparm i2c-tools ifplugd imagemagick less \
-								libboost-dev libconvert-binary-c-perl \
-								libdbus-glib-1-dev libdevice-serialport-perl libjs-jquery \
+								gdebi-core git git-core hdparm i2c-tools ifplugd less \
+                                libgraphicsmagick++1-dev graphicsmagick-libmagick-dev-compat \
+                                libboost-filesystem-dev libboost-system-dev libboost-iostreams-dev libboost-date-time-dev \
+                                libboost-atomic-dev libboost-math-dev libboost-signals-dev libconvert-binary-c-perl \
+								libdbus-glib-1-dev libdevice-serialport-perl libinline-perl libjs-jquery \
 								libjs-jquery-ui libjson-perl libjsoncpp-dev liblo-dev libmicrohttpd-dev libnet-bonjour-perl \
-								libpam-smbpass libsdl2-dev libssh-4 libtagc0-dev libtest-nowarnings-perl locales lsof \
-								mp3info mailutils mpg123 mpg321 mplayer nano nginx node ntp perlmagick \
-								php-cli php-common php-curl php-dom php-fpm php-mcrypt \
+								libsdl2-dev libssh-4 libtagc0-dev libtest-nowarnings-perl locales lsof \
+								mp3info mailutils mpg123 mpg321 mplayer nano net-tools node ntp \
+								php-cli php-common php-curl php-fpm php-xml \
 								php-sqlite3 php-zip python-daemon python-smbus rsync samba \
 								samba-common-bin shellinabox sudo sysstat tcpdump time usbmount vim \
 								vim-common vorbis-tools vsftpd firmware-realtek gcc g++\
@@ -388,9 +393,14 @@ case "${OSVER}" in
 								firmware-atheros firmware-ralink firmware-brcm80211 \
 								dos2unix libmosquitto-dev mosquitto-clients librtmidi-dev \
                                 libavcodec-dev libavformat-dev libswresample-dev libsdl2-dev libswscale-dev libavdevice-dev libavfilter-dev \
-								wireless-tools libcurl4-openssl-dev resolvconf sqlite3 php7.0-zip"
+								wireless-tools libcurl4-openssl-dev resolvconf sqlite3 \
+                                libzstd-dev zstd gpiod libgpiod-dev"
 				;;
 		esac
+
+        if $skip_apt_install; then
+            PACKAGE_LIST=""
+        fi
 
 		let packages=0
 		for package in ${PACKAGE_LIST}
@@ -402,6 +412,15 @@ case "${OSVER}" in
 				apt-get -y clean
 			fi
 		done
+
+        case "${OSVER}" in
+            debian_9)
+                apt-get install -y libapache2-mod-php7.0 php7.0-zip libpam-smbpass php7.1-mcrypt
+                ;;
+            debian_10)
+                apt-get install -y libapache2-mod-php php-zip
+                ;;
+        esac
 
 		echo "FPP - Configuring shellinabox to use /var/tmp"
 		echo "SHELLINABOX_DATADIR=/var/tmp/" >> /etc/default/shellinabox
@@ -416,9 +435,6 @@ case "${OSVER}" in
 		echo "FPP - Installing non-packaged Perl modules via App::cpanminus"
 		curl -L https://cpanmin.us | perl - --sudo App::cpanminus
 		echo "yes" | cpanm -fi Test::Tester File::Map Net::WebSocket::Server Net::PJLink
-
-		echo "FPP - Disabling any stock 'debian' user, use the '${FPPUSER}' user instead"
-		sed -i -e "s/^debian:.*/debian:*:16372:0:99999:7:::/" /etc/shadow
 
 		if [ -f /bin/systemctl ]
 		then
@@ -440,7 +456,7 @@ case "${OSVER}" in
 		update-rc.d -f dhcp-helper remove
 		update-rc.d -f hostapd remove
 
-		if [ "x${OSVER}" == "xdebian_9" ]; then
+		if [ "x${OSVER}" == "xdebian_9" ] || [ "x${OSVER}" == "xdebian_10" ]; then
 			systemctl disable display-manager.service
 		fi
 
@@ -461,7 +477,7 @@ case "${FPPPLATFORM}" in
 	'BeagleBone Black')
 
 		case "${OSVER}" in
-			debian_9)
+			debian_9 | debian_10)
 				echo "FPP - Disabling HDMI for Falcon and LEDscape cape support"
 				sed -i -e 's/#dtb=am335x-boneblack-emmc-overlay.dtb/dtb=am335x-boneblack-emmc-overlay.dtb/' /boot/uEnv.txt
 
@@ -523,18 +539,20 @@ case "${FPPPLATFORM}" in
 		else
 			echo "FPP - Installing OLA"
 			case "${OSVER}" in
-				debian_9)
+				debian_9 | debian_10)
 					apt-get -y install ola ola-python libola-dev libola1
 				;;
 			esac
 		fi
-
 		echo "FPP - Installing wiringPi"
-		cd /opt/ && git clone git://git.drogon.net/wiringPi && cd /opt/wiringPi && ./build
+		cd /opt/ && git clone https://github.com/hardkernel/wiringPi && cd /opt/wiringPi && ./build
+
+		echo "FPP - Installing pigpio"
+		cd /opt/ && rm -rf pigpio && git clone https://github.com/joan2937/pigpio && cd /opt/pigpio && make prefix=/usr && make install prefix=/usr
 
 		if $build_omxplayer; then
 			echo "FPP - Building omxplayer from source with our patch"
-			apt-get -y install git-core libssl1.0-dev libssh-dev libsmbclient-dev
+			apt-get -y install  libssh-dev libsmbclient-dev omxplayer
             cd /opt
 			git clone https://github.com/popcornmix/omxplayer.git
 			cd omxplayer
@@ -550,7 +568,7 @@ case "${FPPPLATFORM}" in
 			# TODO: need to test this binary on jessie
 			echo "FPP - Installing patched omxplayer.bin for FPP MultiSync"
 			case "${OSVER}" in
-				debian_9)
+				debian_9 | debian_10)
 					wget -O- https://github.com/FalconChristmas/fpp-binaries/raw/master/Pi/omxplayer-dist-stretch.tgz | tar xzpv -C /
 					;;
 				*)
@@ -597,7 +615,7 @@ case "${FPPPLATFORM}" in
 		sed -i -e "s/^debian:.*/debian:*:16372:0:99999:7:::/" /etc/shadow
 
 		echo "FPP - Disabling getty on onboard serial ttyAMA0"
-		if [ "x${OSVER}" == "xdebian_9" ]; then
+		if [ "x${OSVER}" == "xdebian_9" ] || [ "x${OSVER}" == "xdebian_10" ]; then
 			systemctl disable serial-getty@ttyAMA0.service
 			sed -i -e "s/console=serial0,115200 //" /boot/cmdline.txt
 			sed -i -e "s/autologin pi/autologin ${FPPUSER}/" /etc/systemd/system/autologin@.service
@@ -608,6 +626,9 @@ case "${FPPPLATFORM}" in
 
 		echo "FPP - Disabling the hdmi force hotplug setting"
 		sed -i -e "s/hdmi_force_hotplug/#hdmi_force_hotplug/" /boot/config.txt
+
+		echo "FPP - Disabling the VC4 OpenGL driver"
+		sed -i -e "s/dtoverlay=vc4-fkms-v3d/#dtoverlay=vc4-fkms-v3d/" /boot/config.txt
 
 		echo "FPP - Enabling SPI in device tree"
 		echo >> /boot/config.txt
@@ -623,7 +644,7 @@ case "${FPPPLATFORM}" in
 		sed -e 's/rootwait/rootwait net.ifnames=0 biosdevname=0/' /boot/cmdline.txt
 
 		echo "# Enable I2C in device tree" >> /boot/config.txt
-		echo "dtparam=i2c=on" >> /boot/config.txt
+        echo "dtparam=i2c_arm=on,i2c_arm_baudrate=400000" >> /boot/config.txt
 		echo >> /boot/config.txt
 
 		echo "# Setting kernel scaling framebuffer method" >> /boot/config.txt
@@ -644,6 +665,10 @@ case "${FPPPLATFORM}" in
 
 		echo "# Swap Pi 3 and Zero W UARTs with BT" >> /boot/config.txt
 		echo "dtoverlay=pi3-miniuart-bt" >> /boot/config.txt
+		echo >> /boot/config.txt
+
+		echo "# GPU memory set to 128 to deal with error in omxplayer with hi-def videos" >> /boot/config.txt
+		echo "gpu_mem=128" >> /boot/config.txt
 		echo >> /boot/config.txt
 
 		echo "FPP - Freeing up more space by removing unnecessary packages"
@@ -722,6 +747,10 @@ case "${FPPPLATFORM}" in
 		;;
 	'Debian')
 		echo "FPP - Debian"
+
+		echo "FPP - Configuring grub to use legacy network interface names"
+		sed -i -e "s/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"net.ifnames=0 biosdevname=0 /" /etc/default/grub
+		grub-mkconfig -o /boot/grub/grub.cfg
 		;;
 	*)
 		echo "FPP - Unknown platform"
@@ -730,15 +759,30 @@ esac
 	
 #######################################
 # Clone git repository
-echo "FPP - Cloning git repository into /opt/fpp"
 cd /opt
-git clone https://github.com/FalconChristmas/fpp fpp
+if $clone_fpp; then
+
+    #######################################
+    # Remove old /opt/fpp if it exists
+    if [ -e "/opt/fpp" ]
+    then
+        echo "FPP - Removing old /opt/fpp"
+        rm -rf /opt/fpp
+    fi
+
+    echo "FPP - Cloning git repository into /opt/fpp"
+    git clone https://github.com/FalconChristmas/fpp fpp
+fi
 
 #######################################
 # Switch to desired code branch
 echo "FPP - Switching git clone to ${FPPBRANCH} branch"
 cd /opt/fpp
 git checkout ${FPPBRANCH}
+
+#######################################
+# Upgrade the config if needed
+sh scripts/upgrade_config -notee
 
 #######################################
 echo "FPP - Installing PHP composer"
@@ -750,6 +794,10 @@ chmod 755 /usr/local/bin/composer
 #######################################
 PHPDIR="/etc/php/7.0"
 
+if [ -d "/etc/php/7.3" ]; then
+    PHPDIR="/etc/php/7.3"
+fi
+
 echo "FPP - Setting up for UI"
 sed -i -e "s/^user =.*/user = ${FPPUSER}/" ${PHPDIR}/fpm/pool.d/www.conf
 sed -i -e "s/^group =.*/group = ${FPPUSER}/" ${PHPDIR}/fpm/pool.d/www.conf
@@ -758,13 +806,13 @@ sed -i -e "s/.*listen.group =.*/listen.group = ${FPPUSER}/" ${PHPDIR}/fpm/pool.d
 sed -i -e "s/.*listen.mode =.*/listen.mode = 0660/" ${PHPDIR}/fpm/pool.d/www.conf
 
 echo "FPP - Allowing short tags in PHP"
-FILES="cli/php.ini fpm/php.ini"
+FILES="cli/php.ini apache2/php.ini fpm/php.ini"
 for FILE in ${FILES}
 do
 	sed -i -e "s/^short_open_tag.*/short_open_tag = On/" ${PHPDIR}/${FILE}
-	sed -i -e "s/max_execution_time.*/max_execution_time = 300/" ${PHPDIR}/${FILE}
-	sed -i -e "s/max_input_time.*/max_input_time = 300/" ${PHPDIR}/${FILE}
-	sed -i -e "s/default_socket_timeout.*/default_socket_timeout = 300/" ${PHPDIR}/${FILE}
+	sed -i -e "s/max_execution_time.*/max_execution_time = 1000/" ${PHPDIR}/${FILE}
+	sed -i -e "s/max_input_time.*/max_input_time = 900/" ${PHPDIR}/${FILE}
+	sed -i -e "s/default_socket_timeout.*/default_socket_timeout = 900/" ${PHPDIR}/${FILE}
 	sed -i -e "s/post_max_size.*/post_max_size = 4G/" ${PHPDIR}/${FILE}
 	sed -i -e "s/upload_max_filesize.*/upload_max_filesize = 4G/" ${PHPDIR}/${FILE}
 	sed -i -e "s/;upload_tmp_dir =.*/upload_tmp_dir = \/home\/${FPPUSER}\/media\/upload/" ${PHPDIR}/${FILE}
@@ -786,16 +834,25 @@ adduser ${FPPUSER} sudo
 case "${FPPPLATFORM}" in
 	'Raspberry Pi'|'BeagleBone Black')
 		adduser ${FPPUSER} spi
+		adduser ${FPPUSER} gpio
 		;;
 esac
 adduser ${FPPUSER} video
 # FIXME, use ${FPPUSER} here instead of hardcoding
 sed -i -e 's/^fpp:\*:/fpp:\$6\$rA953Jvd\$oOoLypAK8pAnRYgQQhcwl0jQs8y0zdx1Mh77f7EgKPFNk\/jGPlOiNQOtE.ZQXTK79Gfg.8e3VwtcCuwz2BOTR.:/' /etc/shadow
 
+echo "FPP - Disabling any stock 'debian' user, use the '${FPPUSER}' user instead"
+sed -i -e "s/^debian:.*/debian:*:16372:0:99999:7:::/" /etc/shadow
 
 #######################################
 echo "FPP - Fixing empty root passwd"
 sed -i -e 's/root::/root:*:/' /etc/shadow
+
+echo "FPP - Setting up ssh to disallow root login"
+sed -i -e "s/#PermitRootLogin .*/PermitRootLogin prohibit-password/" /etc/ssh/sshd_config
+
+echo "FPP - Cleaning up /root/.cpanm to save space on the SD image"
+rm -rf /root/.cpanm
 
 #######################################
 echo "FPP - Populating ${FPPHOME}"
@@ -824,6 +881,9 @@ chown ${FPPUSER}.${FPPUSER} ${FPPHOME}/.vimrc
 echo >> ${FPPHOME}/.bashrc
 echo ". /opt/fpp/scripts/common" >> ${FPPHOME}/.bashrc
 echo >> ${FPPHOME}/.bashrc
+
+mkdir ${FPPHOME}/media/logs
+chown fpp.fpp ${FPPHOME}/media/logs
 
 #######################################
 # Configure log rotation
@@ -861,7 +921,7 @@ cat <<-EOF >> /etc/samba/smb.conf
 
 EOF
 case "${OSVER}" in
-	debian_9)
+	debian_9 |  debian_10)
 		systemctl restart smbd.service
 		systemctl restart nmbd.service
 		;;
@@ -933,8 +993,7 @@ You can access the UI by typing "http://fpp.local/" into a web browser.[0m
 # Config fstab to mount some filesystems as tmpfs
 echo "FPP - Configuring tmpfs filesystems"
 echo "#####################################" >> /etc/fstab
-#echo "tmpfs         /var/log    tmpfs   nodev,nosuid,size=10M 0 0" >> /etc/fstab
-echo "tmpfs         /tmp        tmpfs   nodev,nosuid,size=10M 0 0" >> /etc/fstab
+echo "tmpfs         /tmp        tmpfs   nodev,nosuid,size=50M 0 0" >> /etc/fstab
 echo "tmpfs         /var/tmp    tmpfs   nodev,nosuid,size=50M 0 0" >> /etc/fstab
 echo "#####################################" >> /etc/fstab
 
@@ -950,8 +1009,10 @@ echo "#####################################" >> /etc/fstab
 #######################################
 # Disable IPv6
 echo "FPP - Disabling IPv6"
-cat <<-EOF >> /etc/sysctl.conf
+#prefer ipv4
+echo "precedence ::ffff:0:0/96  100" >>  /etc/gai.conf
 
+cat <<-EOF >> /etc/sysctl.conf
 	# FPP - Disable IPv6
 	net.ipv6.conf.all.disable_ipv6 = 1
 	net.ipv6.conf.default.disable_ipv6 = 1
@@ -966,19 +1027,18 @@ echo "FPP - Configuring Apache webserver"
 sed -i -e "s/APACHE_RUN_USER=.*/APACHE_RUN_USER=${FPPUSER}/" /etc/apache2/envvars
 sed -i -e "s/APACHE_RUN_GROUP=.*/APACHE_RUN_GROUP=${FPPUSER}/" /etc/apache2/envvars
 sed -i -e "s#APACHE_LOG_DIR=.*#APACHE_LOG_DIR=${FPPHOME}/media/logs#" /etc/apache2/envvars
+sed -i -e "s/Listen 8080.*/Listen 80/" /etc/apache2/ports.conf
 
 sed -e "s#FPPDIR#${FPPDIR}#g" -e "s#FPPHOME#${FPPHOME}#g" < ${FPPDIR}/etc/apache2.site > /etc/apache2/sites-enabled/000-default.conf
 
-sed -i \
-	-e "s/short_open_tag =.*/short_open_tag = On/" \
-	-e "s/max_execution_time =.*/max_execution_time = 300/" \
-	-e "s/max_input_time =.*/max_input_time = 300/" \
-	-e "s/max_input_vars =.*/max_input_vars = 5000/" \
-	-e "s/default_socket_timeout =.*/default_socket_timeout = 300/" \
-	-e "s/post_max_size =.*/post_max_size = 4G/" \
-	-e "s/upload_max_filesize =.*/upload_max_filesize = 4G/" \
-	-e "s#;upload_tmp_dir =.*#upload_tmp_dir = ${FPPHOME}/media/upload#" \
-	${PHPDIR}/apache2/php.ini
+# Enable Apache modules
+a2enmod cgi
+a2enmod rewrite
+a2enmod proxy
+a2enmod proxy_http
+a2enmod proxy_html
+a2enmod headers
+
 
 # Fix name of Apache default error log so it gets rotated by our logrotate config
 sed -i -e "s/error\.log/apache2-base-error.log/" /etc/apache2/apache2.conf
@@ -990,32 +1050,19 @@ sed -i -e "s/PrivateTmp=true/PrivateTmp=false/" /lib/systemd/system/apache2.serv
 rm /etc/apache2/conf-enabled/other-vhosts-access-log.conf
 
 case "${OSVER}" in
-	debian_9)
+	debian_9 |  debian_10)
 		systemctl enable apache2.service
 		;;
 esac
-#######################################
-echo "FPP - Configuring (but disabling) nginx webserver"
 
-# Disable default site
-rm /etc/nginx/sites-enabled/default
-# Set user to ${FPPUSER}
-sed -i -e "s/^\s*\#\?\s*user\(\s*\)[^;]*/user\1${FPPUSER}/" /etc/nginx/nginx.conf
-# Install the fpp site
-sed -e "s#FPPDIR#${FPPDIR}#g" -e "s#FPPHOME#${FPPHOME}#g" < ${FPPDIR}/etc/nginx.conf > /etc/nginx/sites-enabled/fpp_nginx.conf
-
-case "${OSVER}" in
-	debian_9)
-		systemctl disable php7.0-fpm.service
-		systemctl disable nginx.service
-		;;
-esac
 
 #######################################
 echo "FPP - Configuring FPP startup"
-cp /opt/fpp/etc/systemd/fppinit.service /lib/systemd/system/
+cp /opt/fpp/etc/systemd/*.service /lib/systemd/system/
 systemctl enable fppinit.service
-cp /opt/fpp/etc/systemd/fppd.service /lib/systemd/system/
+systemctl enable fppcapedetect.service
+systemctl enable fpprtc.service
+systemctl enable fppoled.service
 systemctl enable fppd.service
 
 systemctl enable rsync
@@ -1033,7 +1080,7 @@ make clean ; make optimized
 if [ "x${FPPPLATFORM}" = "xRaspberry Pi" ]; then
     echo "FPP - Compiling WIFI drivers"
     cd /opt/fpp/SD
-    ./FPP-Wifi-Drivers.sh
+    sh ./FPP-Wifi-Drivers.sh
 fi
 
 ENDTIME=$(date)
@@ -1059,6 +1106,6 @@ echo "sudo shutdown -r now"
 echo "========================================================="
 echo ""
 
-cp /home/pi/FPP_Install.* ${FPPHOME}/
+cp /root/FPP_Install.* ${FPPHOME}/
 chown fpp.fpp ${FPPHOME}/FPP_Install.*
 

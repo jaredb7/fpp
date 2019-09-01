@@ -27,12 +27,14 @@
 #define _GPIO595_H
 
 #include "ThreadedChannelOutputBase.h"
+#include "util/GPIOUtils.h"
 
 class GPIO595Output : public ThreadedChannelOutputBase {
   public:
 	GPIO595Output(unsigned int startChannel, unsigned int channelCount);
 	~GPIO595Output();
 
+    virtual int Init(Json::Value config);
 	int Init(char *configStr);
 
 	int Close(void);
@@ -47,9 +49,9 @@ class GPIO595Output : public ThreadedChannelOutputBase {
     }
     
   private:
-	int m_clockPin;
-	int m_dataPin;
-	int m_latchPin;
+	const PinCapabilities * m_clockPin;
+	const PinCapabilities * m_dataPin;
+	const PinCapabilities * m_latchPin;
 };
 
 #endif
