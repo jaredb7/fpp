@@ -108,6 +108,25 @@ function PopulateInterfaces()
 			<div id='divE131Data'>
 
 				<div style="overflow: hidden; padding: 10px;">
+                    <?php
+                        if (file_exists($universeFile)){
+                            ?>
+                            <div id="v1UniverseConvert">
+                            <br>
+                            <fieldset>
+                                <span>FPP 1.x Universe File Detected:</span><br>
+                                <input type='button' onClick='ConvertV1Universe();'
+                                       value='Import FPP v1.x Universes'>
+                                <input type='button' onClick='ConvertV1ConfigIgnore("universes");'
+                                       value='Ignore'>
+                                <br>
+                            </fieldset>
+                            <br>
+                            </div>
+							<?php
+                        }
+                    ?>
+
 					<b>Enable E1.31 / ArtNet / DDP Output:</b> <input type="checkbox" id="E131Enabled"/><br><br>
 					Source Interface: <select id="selE131interfaces" onChange="SetE131interface();"><? PopulateInterfaces(); ?></select>
 					<br><br>

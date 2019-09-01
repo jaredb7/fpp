@@ -298,6 +298,11 @@ include_once("co-other.php");
 </div>
 </div>
 
+        <div id="v1ConfigConverter" title="FPP 1.x Config Converter" style="display: none">
+            <div id="v1ConfigConverterText">
+            </div>
+        </div>
+
 <div id='debugOutput'>
 </div>
 

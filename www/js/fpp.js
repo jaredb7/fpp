@@ -673,6 +673,70 @@ function ConvertPlaylistsToJSON() {
 	});
 }
 
+function ConvertV1Universe(ignore) {
+
+    $.ajax({
+        url: 'fppjson.php?command=convertV1Config&configType=universe',
+        dataType: 'json',
+        success: function(data, reqStatus, xhr) {
+            if(data && typeof data === 'object') {
+                for (i = 0; i < data.conversions[0].length; i++)
+                {
+                    $('#v1ConfigConverterText').append(data.conversions[0][i] + '<br>');
+                }
+                getUniverses('TRUE', 0);
+                SetRestartFlag();
+                $('#v1UniverseConvert').hide();
+            }
+        }
+    });
+}
+
+/**
+ * ConvertV1ChannelOutputs
+ * @param ignore
+ * @constructor
+ */
+function ConvertV1ChannelOutputs(ignore) {
+
+    $.ajax({
+        url: 'fppjson.php?command=convertV1Config&configType=channeloutputs',
+        dataType: 'json',
+        success: function(data, reqStatus, xhr) {
+            if(data && typeof data === 'object') {
+                for (i = 0; i < data.conversions[0].length; i++)
+                {
+                    $('#v1ConfigConverterText').append(data.conversions[0][i] + '<br>');
+                }
+                GetChannelOutputs();
+                SetRestartFlag();
+
+                $('#v1ChannelOutputConvert').hide();
+            }
+        }
+    });
+}
+
+//TODO
+function ConvertV1ConfigIgnore(configType) {
+    //
+    // ConvertV1Config(configType,true);
+}
+
+function ConvertV1Config(configType) {
+    $('#v1ConfigConverterText').html("Converting");
+    $('#v1ConfigConverter').dialog({ height: 600, width: 800, title: "FPP V1.x Config Converter" });
+    $('#v1ConfigConverter').dialog( "moveToTop" );
+
+    if (configType == "universe") {
+        ConvertV1Universe(false);
+    } else if (configType == "channeloutputs") {
+        ConvertV1ChannelOutputs(false);
+    } else if (configType == "channelmemorymaps") {
+
+    }
+}
+
 function SavePlaylist(filter, callback)	{
 	var name=document.getElementById("txtPlaylistName");
     var xmlhttp=new XMLHttpRequest();

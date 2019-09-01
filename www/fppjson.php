@@ -51,6 +51,7 @@ $command_array = Array(
 	"copyFile"            => 'CopyFile',
 	"renameFile"          => 'RenameFile',
 	"convertPlaylists"    => 'ConvertPlaylistsToJSON',
+	"convertV1Config"     => 'ConvertV1Config',
 	"getPluginSetting"    => 'GetPluginSetting',
 	"setPluginSetting"    => 'SetPluginSetting',
 	"saveScript"          => 'SaveScript',
@@ -818,6 +819,52 @@ function RenameFile()
 
 	$result['original'] = $_POST['filename'];
 	$result['new'] = $_POST['newfilename'];
+
+	returnJSON($result);
+}
+
+function ConvertV1Config()
+{
+	global $settings;
+
+	$configType = $_GET['configType'];
+
+	$result['status'] = '';
+	$result['conversions'] = Array();
+
+	if (in_array(strtolower($configType),array('universe','channeloutputs')) &&  !empty($configType))
+	{
+
+		$result['status'] = 'Ok';
+		$result['conversions'] = Array();
+
+		$result['conversions'][] = v1ConfigConvert($configType);
+
+//	foreach(scandir($playlistDirectory) as $playlist)
+//	{
+//		if ($playlist != "." && $playlist != "..")
+//		{
+//			if ((!preg_match("/-CSV$/", $playlist)) &&
+//				(!preg_match("/\.json$/", $playlist)))
+//			{
+//				$playlist = preg_replace("/\.json/", "", $playlist);
+//
+//				$_SESSION['currentPlaylist'] = $playlist;
+//				LoadPlayListDetails($playlist, 0, 0);
+//
+//				SavePlaylistRaw($playlist);
+//
+//				$result['conversions'][] = $playlist;
+//			}
+//		}
+//	}
+	} else {
+		$result['status'] = 'Error';
+		$result['msg'] = 'Config Type not supplied, must be either "universe" or "channeloutputs"';
+
+		returnJSON($result);
+		return;
+	}
 
 	returnJSON($result);
 }

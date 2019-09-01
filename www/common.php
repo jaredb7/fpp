@@ -871,12 +871,16 @@ function get_remote_git_version($git_branch){
 	return $git_remote_version;
 }
 
+/**
+ * Removes any of the following characters from the supplied name, can be used to cleanse playlist names, event names etc
+ * Current needed for example it the case of the scheduler since it is still CSV and commas in a playlist name cause issues
+ * Everything is currently replaced with a hyphen ( - )
+ *
+ * @param $input_string
+ * @return mixed
+ */
 function ReplaceIllegalCharacters($input_string)
 {
-	// Removes any of the following characters from the supplied name, can be used to cleanse playlist names, event names etc
-	// Current needed for example it the case of the scheduler since it is still CSV and commas in a playlist name cause issues
-	// Everything is currently replaced with a hyphen ( - )
-
 	// , (comma)
 	// < (less than)
 	// > (greater than)
@@ -1080,6 +1084,245 @@ function DisableOutputBuffering() {
 
 	ob_implicit_flush(true);
 	flush();
+}
+
+/**
+ * Reads in FPP 1.x config files and generates/converts them to the 2.x format
+ *
+ * @param $configType
+ * @return array
+ */
+function v1ConfigConvert($configType)
+{
+	global $settings, $universeFile;
+
+	$result = [];
+
+	//UNIVERSE
+	//processing for old V1 universe files
+	if (strtolower($configType) == 'universes' || strtolower($configType) == 'universe') {
+		//Location of the V2 JSON Universes file
+		$v2_UniverseFile = $settings['universeOutputs'];
+
+		//V1 Universe config is a CSV file, read in as such
+		if (file_exists($universeFile)) {
+			//Version 2 JSON config - result is an array
+//			$template_v2_JSON_universe = json_decode("
+//		{
+//			\"channelOutputs\": [
+//				{
+//					\"type\": \"universes\",
+//					\"enabled\": 0,
+//					\"startChannel\": 1,
+//					\"channelCount\": -1,
+//					\"universes\": []
+//				}
+//			]
+//		}",true);
+
+			//Version 2 Universe template - this goes within the "universes" node of the main V2 universe config
+			$template_v2_universe_internal =
+				array(
+					"active" => 1,
+					"description" => "Universe 1",
+					"id" => 1,
+					"startChannel" => 1,
+					"universeCount" => 1,
+					"channelCount" => 512,
+					"type" => 1,
+					"address" => "192.192.192.192",
+					"priority" => 0
+				);
+			//Temp store for the generated universes
+			$temp_universe_list = array();
+
+			//loop over the Universe file and read in
+			$v1_universeFile_file = fopen($universeFile, 'r');
+			while (($line = fgetcsv($v1_universeFile_file)) !== FALSE) {
+				//Example of what the version 1 config looks like
+				// Array
+				//	(
+				//		[0] => 1 			//Active/Inactive Flag
+				//		[1] => 1 			//Universe #
+				//		[2] => 1 			//Start Channel
+				//		[3] => 510			//Universe Size
+				//		[4] => 1			//Type (0 - Multicast, 1 - Unicast, 2 - ArtNet Broadcast, 3 - ArtNet Unicast)
+				//		[5] => 192.168.1.50	//Unicast Address
+				//		[6] =>				//Nothing
+				//	)
+
+				//Copy the template
+				$universe_entry = $template_v2_universe_internal;
+				//Now fill everything in:
+				$universe_entry['active'] = $line[0];
+				$universe_entry['id'] = $line[1];
+				$universe_entry['startChannel'] = $line[2];
+				$universe_entry['channelCount'] = $line[3];
+				$universe_entry['type'] = $line[4];
+				//Empty address if not unicast
+				if ($line[4] == 1 || $line[4] == 3 ) {
+					$universe_entry['address'] = $line[5];
+				} else {
+					$universe_entry['address'] = "";
+				}
+				//Generate a description
+				$universe_entry['description'] = "Universe " . $universe_entry['id'];
+
+				//Append this entry to the Universe file
+//				$template_v2_JSON_universe['channelOutputs']['universes'][] = $universe_entry;
+				$temp_universe_list[] = $universe_entry;
+
+				$universe_selection_description = "";
+				if ($universe_entry['type'] == 0) {
+					$universe_selection_description = "Multicast";
+				} else if ($universe_entry['type'] == 1) {
+					$universe_selection_description = "Unicast";
+				} else if ($universe_entry['type'] == 2) {
+					$universe_selection_description = "ArtNet - Broadcast";
+				} else if ($universe_entry['type'] == 3) {
+					$universe_selection_description = "ArtNet - Unicast";
+				}
+
+				$result[] = "Converted " . $universe_entry['description'] . " - " . ($universe_selection_description) . " @ " . $universe_entry['address'];
+			}
+			//Close out the V1 universe file
+			fclose($v1_universeFile_file);
+
+			//Convert the universe list into a JSON string
+			$temp_universe_list = json_encode($temp_universe_list, JSON_PRETTY_PRINT);
+			//Add the universe list to our V2 JSON template
+			$template_v2_JSON_universe = "
+			{
+				\"channelOutputs\": [
+					{
+						\"type\": \"universes\",
+						\"enabled\": 0,
+						\"startChannel\": 1,
+						\"channelCount\": -1,
+						\"universes\": $temp_universe_list
+					}
+				]
+			}";
+
+			//Write the new universe files out
+			if (file_put_contents($v2_UniverseFile,$template_v2_JSON_universe) !== FALSE) {
+				//After convert rename the universe file
+				rename($universeFile,$universeFile.'_v1');
+			}
+		} else {
+			$result[0] = "ERROR: File doesn't exist: " . $universeFile;
+		}
+
+		//CHANNEL OUTPUTS
+	} else if (strtolower($configType) == 'channeloutputs' || strtolower($configType) == 'channeloutput' ) {
+		//$settings['channelOutputsFile'];
+		$v2_ChannelOutputs_file = $settings['co-other'];
+
+		if (file_exists($settings['channelOutputsFile'])) {
+			//Template for the channel output data
+			$template_v2_channeloutput_internal =
+				array(
+					"enabled" => 0,
+					"type" => "",
+					"startChannel" => 1,
+					'channelCount' => 1
+					//device / gpio
+				);
+			//Temp store for the generated universes
+			$temp_channeloutput_list = array();
+
+			//loop over the V1 channelOutputs file and read in
+			$v1_channelOutput_file = fopen($settings['channelOutputsFile'], 'r');
+			while (($line = fgetcsv($v1_channelOutput_file)) !== FALSE) {
+				//Example of what the version 1 channel output config looks like
+				// Array
+				//	(
+				//		[0] => 1 			//Enabled/Disabled Flag
+				//		[1] => DMX-Pro / GPIO etc. 			//Type
+				//		[2] => 1 			//Start Channel
+				//		[3] => 10			//Channel Count / Size
+				//		[4] => gpio=;device=;		//Specifics / gpio=23;invert=1 / device=ttyAMA0 etc
+				//	)
+
+				//Custom handling of WS281X
+				if ($line[1] == "RPIWS281X") {
+					//Has to go into a separate file
+					continue;
+				} else {
+					//Copy the v2 channel output template
+					$channelOutput_entry = $template_v2_channeloutput_internal;
+					//Now fill everything in:
+					$channelOutput_entry['enabled'] = ($line[0] == 1) ? 1 : 0;//Invert
+					$channelOutput_entry['type'] = $line[1];
+					$channelOutput_entry['startChannel'] = $line[2];
+					$channelOutput_entry['channelCount'] = $line[3];
+
+					//Check index 4, if not empty then try to split out it's contents,
+					$channelOutput_specifics = "";
+					if (!empty($line[4])) {
+						//Treat index 4 as INI
+						//take each index and add it into the template
+
+						$line_4_explode = explode(';', $line{4});
+						foreach ($line_4_explode as $line_4_explode_key => $line_4_explode_datum) {
+							$index_4_data = parse_ini_string($line_4_explode_datum);
+							if ($index_4_data !== FALSE) {
+								//Extract the data
+								foreach ($index_4_data as $index_4_key => $index_4_datum) {
+
+									//Extract out the data & add to the v2 channel output entry
+									if ($channelOutput_entry['type'] == "VirtualMatrix" && $index_4_key == "layout") {
+										//convert layout into width and height for Virtual matrix
+										$VM_width_height = explode("x", $index_4_datum);
+										if (!empty($VM_width_height[0]) && !empty($VM_width_height[1])) {
+											$channelOutput_entry['width'] = $VM_width_height[0];
+											$channelOutput_entry['height'] = $VM_width_height[1];
+										} else {
+											$channelOutput_entry['width'] = 0;
+											$channelOutput_entry['height'] = 0;
+										}
+									} else {
+										$channelOutput_entry[$index_4_key] = $index_4_datum;
+									}
+									//Collect details about the output for showing the web interface during conversion
+									$channelOutput_specifics .= " $index_4_key - $index_4_datum; ";
+								}
+							}
+						}
+					}
+				}
+
+
+				//Append this entry to the ChannelOutputs file
+				$temp_channeloutput_list[] = $channelOutput_entry;
+
+				$result[] = "Converted " . $channelOutput_entry['type'] . " @ (" . $channelOutput_specifics . ")";
+			}
+			//Close out the V1 ChanneOutput file
+			fclose($v1_channelOutput_file);
+
+			//Convert the universe list into a JSON string
+			$temp_output_list = json_encode($temp_channeloutput_list, JSON_PRETTY_PRINT);
+			//Add the universe list to our V2 JSON template
+			$template_v2_JSON_channelOutputs = "{
+				\"channelOutputs\": $temp_output_list
+			}";
+
+			//Write the new ChannelOutput file out
+			if (file_put_contents($v2_ChannelOutputs_file,$template_v2_JSON_channelOutputs) !== FALSE) {
+				//After convert rename the old v1 channel outputs file
+				rename($settings['channelOutputsFile'],$settings['channelOutputsFile'].'_v1');
+			}
+		} else {
+			$result[0] = "ERROR: File doesn't exist: " . $settings['channelOutputsFile'];
+		}
+	}else if (strtolower($configType) == 'channelmemorymaps') {
+//$settings['channelOutputsFile'];
+		$result[0] = "channelmemorymaps - Conversion logic not configured";
+	}
+
+
+return $result;
 }
 
 ?>

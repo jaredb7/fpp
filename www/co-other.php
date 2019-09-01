@@ -1700,6 +1700,24 @@ $(document).ready(function(){
 			<legend> Other Outputs </legend>
 			<div id='divOtherData'>
 				<div style="overflow: hidden; padding: 10px;">
+					<?php
+					if (file_exists($settings['channelOutputsFile'])){
+						?>
+                        <div id="v1ChannelOutputConvert">
+                            <br>
+                            <fieldset>
+                                <span>FPP 1.x ChannelOutputs File Detected:</span><br>
+                                <input type='button' onClick='ConvertV1ChannelOutputs();'
+                                       value='Import FPP v1.x ChannelOutputs'>
+                                <input type='button' onClick='ConvertV1ConfigIgnore("channelOutputs");'
+                                       value='Ignore'>
+                                <br>
+                            </fieldset>
+                            <br>
+                        </div>
+						<?php
+					}
+					?>
 					<form id="frmOtherOutputs">
 						<input name="command" type="hidden" value="saveOtherOutputs" />
 						<table>
