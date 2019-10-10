@@ -165,12 +165,12 @@ include 'common/menuHead.inc';
       </table>
         <hr>
     </div>
-    <div id="bytesTransferred"><H3>E1.31 Packets and Bytes Received</H3>
+    <div id="bytesTransferred"><H3>E1.31/DDP/ArtNet Packets and Bytes Received</H3>
       <table style='width: 100%'>
         <tr><td align='left'>
           <input type='button' onClick='GetUniverseBytesReceived();' value='Update'>
         </td><td align='right'>
-		  <? PrintSettingCheckbox("E1.31 Live Update", "e131statsLiveUpdate", 0, 0, "1", "0"); ?> Live Update E1.31 Stats
+		  <? PrintSettingCheckbox("E1.31 Live Update", "e131statsLiveUpdate", 0, 0, "1", "0"); ?> Live Update Stats
         </td></tr>
 	  </table>
       <hr>
@@ -277,7 +277,7 @@ include 'common/menuHead.inc';
         <input id= "btnPlay" type="button"  class ="buttons"value="Play" onClick="StartPlaylistNow();">
         <input id= "btnPrev" type="button"  class ="buttons"value="Previous" onClick="PreviousPlaylistEntry();">
         <input id= "btnNext" type="button"  class ="buttons"value="Next" onClick="NextPlaylistEntry();">
-        <input id= "btnStopGracefully" type="button"  class ="buttons"value="Stop Gracefully" onClick="StopGracefully();">
+        <input id= "btnStopGracefully" type="button"  class ="buttons" value="Stop Gracefully" onClick="StopGracefully();">
         <input id= "btnStopNow" type="button" class ="buttons" value="Stop Now" onClick="StopNow();">
        </div>
     </div>

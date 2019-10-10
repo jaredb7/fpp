@@ -99,7 +99,7 @@ function flashEMMCBtrfs() {
 	<fieldset>
 	<legend>FPP Advanced Settings</legend>
 	<table table width = "100%">
-        <tr><td valign='top'><? PrintSettingCheckbox("Show All Options", "showAllOptions", 0, 0, "1", "0"); ?></td><td><b>Display all options/settings</b> -
+        <tr><td valign='top' align="right"><? PrintSettingCheckbox("Show All Options", "showAllOptions", 0, 0, "1", "0"); ?></td><td><b>Display all options/settings</b> -
 If
                 turned off and FPPD can detect what hardware (cape/hat/etc...) is connected, certain options that are either incompatible with the
                 hardware or are rarely used may not be displayed.</td></tr>
@@ -123,11 +123,9 @@ If
 		</tr>
 		<tr><td colspan='2'><hr></td></tr>
 <?
-	if ($settings['fppMode'] != 'remote')
-	{
+	if ($settings['fppMode'] != 'remote') {
 ?>
-		<tr><td valign='top'><? PrintSettingText("mediaOffset", 1, 0, 5, 5); ?> ms<br>
-				<? PrintSettingSave("Media Offset", "mediaOffset", 1, 0); ?></td>
+		<tr><td valign='top'><? PrintSettingTextSaved("mediaOffset", 1, 0, 5, 5, "", "0"); ?> ms</td>
 			<td valign='top'><b>Media/Sequence Offset</b> - The Media Offset value
 				allows adjusting the synchronization of the media and sequences being
 				played.  The value is specified in milliseconds.  A positive value
@@ -139,13 +137,22 @@ If
 				sequences to bring them into sync.</td>
 		</tr>
 <?
-	}
-	else
-	{
+        if ($settings['fppMode'] == 'master') {
+?>
+        <tr><td valign='top'><? PrintSettingTextSaved("openStartDelay", 1, 0, 5, 5, "", "0"); ?> ms</td>
+			<td valign='top'><b>Open/Start Delay</b> - An extra delay (in ms) between the master sending
+            the "Open" command and actually starting the sequence.  This can be used to allow the remotes
+            to have extra time to open the sequence, process videos, etc...   This requires master and
+            remote to both be running FPP 3.2 or newer.  For complext MP4 files on remotes, a
+            value of around 650-800 is likely needed for the remote video to be loaded and buffers filled
+            prior to first frame being displayed.</td>
+		</tr>
+<?
+        }
+	} else {
 ?>
 		<tr><td colspan='2'><hr></td></tr>
-		<tr><td valign='top'><? PrintSettingText("remoteOffset", 1, 0, 5, 5); ?> ms<br>
-				<? PrintSettingSave("Remote Offset", "remoteOffset", 1, 0); ?></td>
+		<tr><td valign='top'><? PrintSettingTextSaved("remoteOffset", 1, 0, 5, 5, "", "0"); ?> ms</td>
 			<td valign='top'><b>Remote Media/Sequence Offset</b> - The Remote Offset value
 				allows adjusting the synchronization of a FPP Remote.
 				The value is specified in milliseconds.  A positive value
@@ -156,7 +163,16 @@ If
 				offsets per file then you will need to edit the media files
 				to bring them into sync.</td>
 		</tr>
+<?php
+        if ($settings['Platform'] == "Raspberry Pi") {
+?>
+            <tr><td valign='top' align="right"><? PrintSettingCheckbox("Ignore media sync packets", "remoteIgnoreSync", 1, 0, "1", "0") ?></td>
+                <td valign='top'><b>Ignore Media Sync Packets</b> - When enabled, videos played with omxplayer on the remote will be started and stopped
+                when the master sends the start/stop events, but no attempt will be made to keep the video in sync with the
+                master during playback.  The video will run smoother, but may get out of sync with the master.</td>
+            </tr>
 <?
+        }
     }
 
     $addnewfsbutton = false;
@@ -250,13 +266,28 @@ FPP will respond to certain events:
 <table width = "100%" border="0" cellpadding="1" cellspacing="1">
 <tr><th>Topic</th><th>Action</th></tr>
 <tr>
-<td>$prefix/falcon/player/$hostname/playlist/name/set</td><td>Starts the plalist named in the payload</td>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/start</td><td>Starts the playlist (optional payload can be index of item to start with)</td>
 </tr>
 <tr>
-<td>$prefix/falcon/player/$hostname/playlist/repeat/set</td><td>If payload is "1", will turn on repeat, otherwise it is turned off</td>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/next</td><td>Forces playing of the next item in the playlist (payload ignored)</td>
 </tr>
 <tr>
-<td>$prefix/falcon/player/$hostname/playlist/sectionPosition/set</td><td>Payload contains an integer for the position in the playlist</td>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/prev</td><td>Forces playing of the previous item in the playlist (payload ignored)</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/repeat</td><td>If payload is "1", will turn on repeat, otherwise it is turned off</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/sectionPosition</td><td>Payload contains an integer for the position in the playlist (0 based)</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/stop/now</td><td>Forces the playlist to stop immediately.  PLAYLISTNAME can be ALLPLAYLISTS.</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/stop/graceful</td><td>Gracefully stop playlist.  PLAYLISTNAME can be ALLPLAYLISTS.</td>
+</tr>
+<tr>
+<td>$prefix/falcon/player/$hostname/set/playlist/${PLAYLISTNAME}/stop/afterloop</td><td>Allow playlist to finish current loop then stop.  PLAYLISTNAME can be ALLPLAYLISTS.</td>
 </tr>
 <tr>
 <td>$prefix/falcon/player/$hostname/event/</td><td>Starts the event identified by the payload.   The payload format is MAJ_MIN identifying the event.</td>

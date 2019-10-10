@@ -132,7 +132,7 @@ private:
 };
 
 FPPMainMenu::FPPMainMenu(FPPStatusOLEDPage *p)
-: MenuOLEDPage("Main Menu", {"FPP Mode", "Teathering", "Testing", "Reboot", "Shutdown", "About", "Back"}, p),
+: MenuOLEDPage("Main Menu", {"FPP Mode", "Tethering", "Testing", "Reboot", "Shutdown", "About", "Back"}, p),
   aboutPage(nullptr), statusPage(p) {
     
 }
@@ -146,9 +146,9 @@ FPPMainMenu::~FPPMainMenu() {
 void FPPMainMenu::displaying() {
     std::string mode = statusPage->getCurrentMode();
     if (mode == "Bridge") {
-        items = {"Bridge Stats", "FPP Mode", "Teathering", "Testing", "Reboot", "Shutdown", "About", "Back"};
+        items = {"Bridge Stats", "FPP Mode", "Tethering", "Testing", "Reboot", "Shutdown", "About", "Back"};
     } else if (mode != "Remote") {
-        items = {"Start Playlist", "FPP Mode", "Teathering", "Testing", "Reboot", "Shutdown", "About", "Back"};
+        items = {"Start Playlist", "FPP Mode", "Tethering", "Testing", "Reboot", "Shutdown", "About", "Back"};
     }
     MenuOLEDPage::displaying();
 }
@@ -196,7 +196,7 @@ void FPPMainMenu::itemSelected(const std::string &item) {
         }, this);
         pg->autoDelete();
         SetCurrentPage(pg);
-    } else if (item == "Teathering") {
+    } else if (item == "Tethering") {
         FPPStatusOLEDPage *sp = statusPage;
         std::vector<std::string> options = {
             " Automatic",
@@ -284,13 +284,21 @@ void FPPMainMenu::itemSelected(const std::string &item) {
         bool success = reader.parse(d, result);
         if (success) {
             std::vector<std::string> playlists;
+            playlists.push_back("-Stop Now-");
+            playlists.push_back("-Stop Gracefully-");
             for (int x = 0; x < result.size(); x++) {
                 playlists.push_back(result[x].asString());
             }
             playlists.push_back("Back");
             FPPStatusOLEDPage *sp = statusPage;
             MenuOLEDPage *pg = new MenuOLEDPage("Playlist", playlists, [sp] (const std::string &item) {
-                if (item != "Back") {
+                if (item == "-Stop Now-") {
+                    std::string url = "http://localhost/fppxml.php?command=stopNow";
+                    doCurlGet(url, 1000);
+                } else if (item == "-Stop Gracefully-") {
+                    std::string url = "http://localhost/fppxml.php?command=stopGracefully";
+                    doCurlGet(url, 1000);
+                } else if (item != "Back") {
                     std::string url = "http://localhost/fppxml.php?command=startPlaylist&repeat=checked&playEntry=0&section=&playList=";
                     url += item;
                     doCurlGet(url, 1000);

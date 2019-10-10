@@ -1005,7 +1005,7 @@ function RemovePlaylistEntry()	{
 
 		function UpgradeFPPVersion(newVersion)
 		{
-			if (confirm('Do you wish to upgrade the Falcon Player?\n\nClick "OK" to continue.\n\nThe system will automatically reboot to complete the upgrade.\nThis should take about 2 or 3 minutes.'))
+			if (confirm('Do you wish to upgrade the Falcon Player?\n\nClick "OK" to continue.\n\nThe system will automatically reboot to complete the upgrade.\nThis can take a long time,  20-30 minutes on slower devices.'))
 			{
 				document.body.style.cursor = "wait";
 				$.get("fppxml.php?command=upgradeFPPVersion&version=v" + newVersion
@@ -1267,7 +1267,8 @@ function RemovePlaylistEntry()	{
                 if (input) {
                     bodyHTML += ">" +
                                 "<option value='0' " + typeMulticastE131 + ">E1.31 - Multicast</option>" +
-                                "<option value='1' " + typeUnicastE131 + ">E1.31 - Unicast</option>";
+                                "<option value='1' " + typeUnicastE131 + ">E1.31 - Unicast</option>" +
+                                "<option value='2' " + typeBroadcastArtNet + ">ArtNet</option>";
                 } else {
                     bodyHTML += " onChange='IPOutputTypeChanged(this);'>" +
                                 "<option value='0' " + typeMulticastE131 + ">E1.31 - Multicast</option>" +
@@ -2239,7 +2240,7 @@ if (1) {
                 SetButtonState('#btnPrev','enable');
                 SetButtonState('#btnNext','enable');
                 SetButtonState('#btnStopNow','enable');
-                SetButtonState('#btnStopGracefully','disable');
+                SetButtonState('#btnStopGracefully','enable');
                 
                 $('#txtPlayerStatus').html(playerStatusText);
                 $('#txtTimePlayed').html("Elapsed: " + jsonStatus.time_elapsed );
@@ -2607,14 +2608,8 @@ function StatusPopulatePlaylists()
 function StartPlaylistNow()
 	{
 		var Playlist =  $("#selStartPlaylist").val();
-    var xmlhttp=new XMLHttpRequest();
+        var xmlhttp=new XMLHttpRequest();
 		var repeat = $("#chkRepeat").is(':checked')?'checked':'unchecked';
-		if ((PlaySectionSelected != '') &&
-			(PlayEntrySelected >= $('#tblPlaylist' + PlaySectionSelected + ' >tr').length))
-		{
-				PlayEntrySelected = 0;
-				PlaySectionSelected = "";
-		}
 		var url = "fppxml.php?command=startPlaylist&playList=" + Playlist + "&repeat=" + repeat + "&playEntry=" + PlayEntrySelected + "&section=" + PlaySectionSelected ;
 		xmlhttp.open("GET",url,true);
 		xmlhttp.setRequestHeader('Content-Type', 'text/xml');

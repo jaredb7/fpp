@@ -25,7 +25,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-
+#include <thread>
 #include <boost/algorithm/string.hpp>
 
 #include "log.h"
@@ -35,11 +35,15 @@
 #include "PlaylistEntryMedia.h"
 #include "Plugins.h"
 #include "settings.h"
+#include "common.h"
 #include "mediaoutput/mpg123.h"
 #include "mediaoutput/ogg123.h"
 #include "mediaoutput/omxplayer.h"
 #include "mediaoutput/SDLOut.h"
 #include "Playlist.h"
+
+
+int PlaylistEntryMedia::m_openStartDelay = -1;
 
 /*
  *
@@ -56,12 +60,14 @@ PlaylistEntryMedia::PlaylistEntryMedia(PlaylistEntryBase *parent)
 	m_mediaSeconds(0.0),
 	m_speedDelta(0),
 	m_mediaOutput(NULL),
-    m_videoOutput("--Default--")
+    m_videoOutput("--Default--"),
+    m_openTime(0)
 {
     LogDebug(VB_PLAYLIST, "PlaylistEntryMedia::PlaylistEntryMedia()\n");
-
+    if (m_openStartDelay == -1) {
+        m_openStartDelay = getSettingInt("openStartDelay");
+    }
 	m_type = "media";
-
 	pthread_mutex_init(&m_mediaOutputLock, NULL);
 }
 
@@ -102,7 +108,7 @@ int PlaylistEntryMedia::PreparePlay() {
         FinishPlay();
         return 0;
     }
-    
+
     if (!OpenMediaOutput()) {
         FinishPlay();
         return 0;
@@ -111,13 +117,12 @@ int PlaylistEntryMedia::PreparePlay() {
     if (getFPPmode() == MASTER_MODE)
         multiSync->SendMediaOpenPacket(m_mediaFilename);
     
+    m_openTime = GetTimeMS();
     if (mqtt) {
         mqtt->Publish("playlist/media/status", m_mediaFilename);
         mqtt->Publish("playlist/media/title", MediaDetails::INSTANCE.title);
         mqtt->Publish("playlist/media/artist", MediaDetails::INSTANCE.artist);
     }
-
-    PluginManager::INSTANCE.mediaCallback(playlist->GetInfo(), MediaDetails::INSTANCE);
     return 1;
 }
 
@@ -129,6 +134,13 @@ int PlaylistEntryMedia::StartPlaying(void)
 {
     LogDebug(VB_PLAYLIST, "PlaylistEntryMedia::StartPlaying()\n");
 
+    if (getFPPmode() == MASTER_MODE && m_openTime) {
+        long long st = GetTimeMS() - m_openTime;
+        if (st < m_openStartDelay) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_openStartDelay - st));
+        }
+    }
+    
     if (m_mediaOutput == nullptr) {
         if (PreparePlay() == 0) {
             return 0;
@@ -282,6 +294,12 @@ int PlaylistEntryMedia::OpenMediaOutput(void)
 
     LogDebug(VB_PLAYLIST, "PlaylistEntryMedia - Starting %s\n", tmpFile.c_str());
 
+
+
+    MediaDetails::INSTANCE.ParseMedia(m_mediaFilename.c_str());
+    PluginManager::INSTANCE.mediaCallback(playlist->GetInfo(), MediaDetails::INSTANCE);
+
+
     std::string vOut = m_videoOutput;
     if (vOut == "--Default--") {
         vOut = getSetting("VideoOutput");
@@ -323,7 +341,6 @@ int PlaylistEntryMedia::OpenMediaOutput(void)
 		return 0;
 	}
 
-    MediaDetails::INSTANCE.ParseMedia(m_mediaFilename.c_str());
     pthread_mutex_unlock(&m_mediaOutputLock);
 
 
@@ -391,7 +408,7 @@ Json::Value PlaylistEntryMedia::GetMqttStatus(void)
 	Json::Value result = PlaylistEntryBase::GetMqttStatus();
 	result["secondsElapsed"]    = mediaOutputStatus.secondsElapsed;
 	result["secondsRemaining"]  = mediaOutputStatus.secondsRemaining;
-	result["secondsTotal"]      = mediaOutputStatus.secondsTotal;
+	result["secondsTotal"]      = mediaOutputStatus.minutesTotal * 60 + mediaOutputStatus.secondsTotal;
 	result["mediaName"]         = m_mediaFilename;
 	result["mediaTitle"]        = MediaDetails::INSTANCE.title;
 	result["mediaArtist"]       = MediaDetails::INSTANCE.artist;

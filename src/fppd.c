@@ -61,6 +61,7 @@
 #include <execinfo.h>
 #include <fstream>
 #include <sstream>
+#include <sys/epoll.h>
 
 #include <Magick++.h>
 
@@ -319,6 +320,7 @@ int parseArguments(int argc, char **argv)
 				}
 				break;
             case 4: // detect-piface
+                PinCapabilities::InitGPIO();
                 if (PinCapabilities::getPinByGPIO(200).ptr()) {
                     printf("PiFace found\n");
                     exit(1);
@@ -412,6 +414,7 @@ int parseArguments(int argc, char **argv)
 				break;
 			case 'H': //Detect Falcon hardware
 			case 'C': //Configure Falcon hardware
+                PinCapabilities::InitGPIO();
 				SetLogFile("");
 				SetLogLevel("debug");
 				SetLogMask("setting");
@@ -451,7 +454,6 @@ int main(int argc, char *argv[])
 	curl_global_init(CURL_GLOBAL_ALL);
 
 	Magick::InitializeMagick(NULL);
-    PinCapabilities::InitGPIO();
 
     // Parse our arguments first, override any defaults
     parseArguments(argc, argv);
@@ -463,11 +465,12 @@ int main(int argc, char *argv[])
 	printVersionInfo();
 
 	// Start functioning
-	if (getDaemonize())
+    if (getDaemonize()) {
 		CreateDaemon();
+    }
+    PinCapabilities::InitGPIO();
 
-	if (strcmp(getSetting("MQTTHost"),""))
-	{
+	if (strcmp(getSetting("MQTTHost"),"")) {
 		mqtt = new MosquittoClient(getSetting("MQTTHost"), getSettingInt("MQTTPort"), getSetting("MQTTPrefix"));
 
 		if (!mqtt || !mqtt->Init(getSetting("MQTTUsername"), getSetting("MQTTPassword"), getSetting("MQTTCaFile")))
@@ -482,8 +485,9 @@ int main(int argc, char *argv[])
 	sequence  = new Sequence();
 	multiSync = new MultiSync();
 
-	if (!multiSync->Init())
+    if (!multiSync->Init()) {
 		exit(EXIT_FAILURE);
+    }
     
     Sensors::INSTANCE.Init();
     initCape();
@@ -496,8 +500,7 @@ int main(int argc, char *argv[])
         CreatePixelnetDMXfile(getPixelnetFile());
     }
 
-	if (getFPPmode() != BRIDGE_MODE)
-	{
+	if (getFPPmode() != BRIDGE_MODE) {
 		InitMediaOutput();
 	}
 
@@ -512,13 +515,11 @@ int main(int argc, char *argv[])
 
 	MainLoop();
 
-	if (getFPPmode() != BRIDGE_MODE)
-	{
+	if (getFPPmode() != BRIDGE_MODE) {
 		CleanupMediaOutput();
 	}
 
-	if (getFPPmode() & PLAYER_MODE)
-	{
+	if (getFPPmode() & PLAYER_MODE) {
 		CloseEffects();
 	}
     CleanupGPIOInput();
@@ -548,103 +549,88 @@ void ShutdownFPPD(void)
 
 void MainLoop(void)
 {
-	int            commandSock = 0;
-	int            controlSock = 0;
-	int            bridgeSock = 0;
-    int            ddpSock = 0;
 	int            prevFPPstatus = FPPstatus;
-	int            sleepms = 50000;
-	fd_set         active_fd_set;
-	fd_set         read_fd_set;
-	struct timeval timeout;
-	int            selectResult;
+	int            sleepms = 50;
     std::map<int, std::function<bool(int)>> callbacks;
 
 	LogDebug(VB_GENERAL, "MainLoop()\n");
 
-	FD_ZERO (&active_fd_set);
+	int sock = Command_Initialize();
+    LogDebug(VB_GENERAL, "Command socket: %d\n", sock);
+    if (sock >= 0) {
+        callbacks[sock] = [] (int i) {
+            CommandProc();
+            return false;
+        };
+    }
     
-    SetupGPIOInput(callbacks);
-
-	commandSock = Command_Initialize();
-	if (commandSock)
-		FD_SET (commandSock, &active_fd_set);
-
-	if (getFPPmode() & PLAYER_MODE)
-	{
+    sock = multiSync->GetControlSocket();
+    LogDebug(VB_GENERAL, "Multisync socket: %d\n", sock);
+    if (sock >= 0) {
+        callbacks[sock] = [] (int i) {
+            multiSync->ProcessControlPacket();
+            return false;
+        };
+    }
+	if (getFPPmode() & PLAYER_MODE) {
 		scheduler->CheckIfShouldBePlayingNow();
 		if (getAlwaysTransmit())
 			StartChannelOutputThread();
+	} else if (getFPPmode() == BRIDGE_MODE) {
+		Bridge_Initialize(callbacks);
 	}
-	else if (getFPPmode() == BRIDGE_MODE)
-	{
-		Bridge_Initialize(bridgeSock, ddpSock);
-		if (bridgeSock)
-			FD_SET (bridgeSock, &active_fd_set);
-        if (ddpSock)
-            FD_SET (ddpSock, &active_fd_set);
-	}
-
-	controlSock = multiSync->GetControlSocket();
-	FD_SET (controlSock, &active_fd_set);
+    SetupGPIOInput(callbacks);
 
     APIServer apiServer;
     apiServer.Init();
 
     PluginManager::INSTANCE.addControlCallbacks(callbacks);
+ 
+    int epollf = epoll_create1(EPOLL_CLOEXEC);
     for (auto &a : callbacks) {
-        FD_SET(a.first, &active_fd_set);
+        epoll_event event;
+        event.events = EPOLLIN;
+        event.data.fd = a.first;
+        int rc = epoll_ctl(epollf, EPOLL_CTL_ADD, a.first, &event);
+        if (rc == -1) {
+            LogWarn(VB_GENERAL, "epoll_ctl() failed for socket: %d  %s\n", a.first, strerror(errno));
+        }
     }
 
 	multiSync->Discover();
 
+    if (mqtt) {
+        mqtt->SetReady();
+    }
+    
 	LogInfo(VB_GENERAL, "Starting main processing loop\n");
 
-	while (runMainFPPDLoop)
-	{
-		timeout.tv_sec  = 0;
-		timeout.tv_usec = sleepms;
-
-		read_fd_set = active_fd_set;
-
-
-		selectResult = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &timeout);
-		if (selectResult < 0)
-		{
-			if (errno == EINTR)
-			{
+    static const int MAX_EVENTS = 20;
+    epoll_event events[MAX_EVENTS];
+    int idleCount = 0;
+    
+	while (runMainFPPDLoop) {
+        int epollresult = epoll_wait(epollf, events, MAX_EVENTS, sleepms);
+		if (epollresult < 0) {
+			if (errno == EINTR) {
 				// We get interrupted when media players finish
 				continue;
-			}
-			else
-			{
-				LogErr(VB_GENERAL, "Main select() failed: %s\n",
-					strerror(errno));
+			} else {
+				LogErr(VB_GENERAL, "Main epoll() failed: %s\n", strerror(errno));
 				runMainFPPDLoop = 0;
 				continue;
 			}
 		}
-
         bool pushBridgeData = false;
-		if (commandSock && FD_ISSET(commandSock, &read_fd_set))
-			CommandProc();
-		if (bridgeSock && FD_ISSET(bridgeSock, &read_fd_set))
- 			pushBridgeData |= Bridge_ReceiveE131Data();
-        if (ddpSock && FD_ISSET(ddpSock, &read_fd_set))
-            pushBridgeData |= Bridge_ReceiveDDPData();
-		if (FD_ISSET(controlSock, &read_fd_set))
-			multiSync->ProcessControlPacket();
-        
-        for (auto &a : callbacks) {
-            if (FD_ISSET(a.first, &read_fd_set)) {
-                pushBridgeData |= a.second(a.first);
+        if (epollresult > 0) {
+            for (int x = 0; x < epollresult; x++) {
+                pushBridgeData |= callbacks[events[x].data.fd](events[x].data.fd);
             }
         }
-
+        
 		// Check to see if we need to start up the output thread.
-		// FIXME, possibly trigger this via a fpp command to fppd
-		if ((!ChannelOutputThreadIsRunning()) &&
-			(getFPPmode() != BRIDGE_MODE) &&
+		if ((getFPPmode() != BRIDGE_MODE) &&
+            (!ChannelOutputThreadIsRunning()) &&
             ((PixelOverlayManager::INSTANCE.UsingMemoryMapInput()) ||
              (ChannelTester::INSTANCE.Testing()) ||
 			 (getAlwaysTransmit()))) {
@@ -655,32 +641,26 @@ void MainLoop(void)
 			StartChannelOutputThread();
 		}
 
-		if (getFPPmode() & PLAYER_MODE)
-		{
+		if (getFPPmode() & PLAYER_MODE) {
 			if ((FPPstatus == FPP_STATUS_PLAYLIST_PLAYING) ||
-				(FPPstatus == FPP_STATUS_STOPPING_GRACEFULLY))
-			{
-				if (prevFPPstatus == FPP_STATUS_IDLE)
-				{
+				(FPPstatus == FPP_STATUS_STOPPING_GRACEFULLY)) {
+				if (prevFPPstatus == FPP_STATUS_IDLE) {
 					playlist->Start();
-					sleepms = 10000;
+					sleepms = 10;
 				}
 
 				// Check again here in case PlayListPlayingInit
 				// didn't find anything and put us back to IDLE
 				if ((FPPstatus == FPP_STATUS_PLAYLIST_PLAYING) ||
-					(FPPstatus == FPP_STATUS_STOPPING_GRACEFULLY))
-				{
+					(FPPstatus == FPP_STATUS_STOPPING_GRACEFULLY)) {
 					playlist->Process();
 				}
 			}
 
 			int reactivated = 0;
-			if (FPPstatus == FPP_STATUS_IDLE)
-			{
+			if (FPPstatus == FPP_STATUS_IDLE) {
 				if ((prevFPPstatus == FPP_STATUS_PLAYLIST_PLAYING) ||
-					(prevFPPstatus == FPP_STATUS_STOPPING_GRACEFULLY))
-				{
+					(prevFPPstatus == FPP_STATUS_STOPPING_GRACEFULLY)) {
 					playlist->Cleanup();
 
 					scheduler->ReLoadCurrentScheduleInfo();
@@ -691,7 +671,7 @@ void MainLoop(void)
 					if (FPPstatus != FPP_STATUS_IDLE)
 						reactivated = 1;
 					else
-						sleepms = 50000;
+						sleepms = 50;
 				}
 			}
 
@@ -701,21 +681,34 @@ void MainLoop(void)
 				prevFPPstatus = FPPstatus;
 
 			scheduler->ScheduleProc();
-		}
-		else if (getFPPmode() == REMOTE_MODE)
-		{
-			if(mediaOutputStatus.status == MEDIAOUTPUTSTATUS_PLAYING)
-			{
+		} else if (getFPPmode() == REMOTE_MODE) {
+			if (mediaOutputStatus.status == MEDIAOUTPUTSTATUS_PLAYING) {
 				playlist->ProcessMedia();
 			}
-        }
-        else if (getFPPmode() == BRIDGE_MODE && pushBridgeData)
-        {
+        } else if (getFPPmode() == BRIDGE_MODE && pushBridgeData) {
             ForceChannelOutputNow();
         }
-        multiSync->PeriodicPing();
+        bool doPing = false;
+        if (!epollresult) {
+            idleCount++;
+            if (idleCount >= 20) {
+                doPing = true;
+            }
+        } else if (idleCount > 0) {
+            doPing = true;
+        } else {
+            idleCount--;
+            if (idleCount < -20) {
+                doPing = true;
+            }
+        }
+        if (doPing) {
+            idleCount = 0;
+            multiSync->PeriodicPing();
+        }
 		CheckGPIOInputs();
 	}
+    close(epollf);
 
     LogInfo(VB_GENERAL, "Stopping channel output thread.\n");
 	StopChannelOutputThread();
@@ -727,42 +720,42 @@ void MainLoop(void)
 
 void CreateDaemon(void)
 {
-  /* Fork and terminate parent so we can run in the background */
-  /* Fork off the parent process */
-  pid = fork();
-  if (pid < 0) {
-          exit(EXIT_FAILURE);
-  }
-  /* If we got a good PID, then
+    /* Fork and terminate parent so we can run in the background */
+    /* Fork off the parent process */
+    pid = fork();
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    }
+    /* If we got a good PID, then
+        we can exit the parent process. */
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    /* Change the file mode mask */
+    umask(0);
+
+    /* Create a new SID for the child process */
+    sid = setsid();
+    if (sid < 0) {
+        /* Log any failures here */
+        exit(EXIT_FAILURE);
+    }
+
+    /* Fork a second time to get rid of session leader */
+    /* Fork off the parent process */
+    pid = fork();
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    }
+    /* If we got a good PID, then
       we can exit the parent process. */
-  if (pid > 0) {
-          exit(EXIT_SUCCESS);
-  }
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
 
-  /* Change the file mode mask */
-  umask(0);
-
-  /* Create a new SID for the child process */
-  sid = setsid();
-  if (sid < 0) {
-          /* Log any failures here */
-          exit(EXIT_FAILURE);
-  }
-
-  /* Fork a second time to get rid of session leader */
-  /* Fork off the parent process */
-  pid = fork();
-  if (pid < 0) {
-          exit(EXIT_FAILURE);
-  }
-  /* If we got a good PID, then
-      we can exit the parent process. */
-  if (pid > 0) {
-          exit(EXIT_SUCCESS);
-  }
-
-  /* Close out the standard file descriptors */
-  close(STDIN_FILENO);
-  close(STDOUT_FILENO);
-  close(STDERR_FILENO);
+    /* Close out the standard file descriptors */
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
 }
