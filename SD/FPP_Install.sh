@@ -48,8 +48,8 @@
 #
 #############################################################################
 FPPBRANCH=${FPPBRANCH:-"master"}
-FPPIMAGEVER="2024-02"
-FPPCFGVER="84"
+FPPIMAGEVER="2024-03"
+FPPCFGVER="86"
 FPPPLATFORM="UNKNOWN"
 FPPDIR=/opt/fpp
 FPPUSER=fpp
@@ -158,7 +158,7 @@ fi
 
 # Parse build options as arguments
 clone_fpp=true
-build_vlc=true
+build_vlc=false
 skip_apt_install=false
 desktop=true
 isimage=false;
@@ -215,6 +215,10 @@ while [ -n "$1" ]; do
             ;;
         --skip-vlc)
             build_vlc=false
+            shift
+            ;;
+        --build-vlc)
+            build_vlc=true
             shift
             ;;
         --skip-apt-install)
@@ -491,7 +495,7 @@ case "${OSVER}" in
                       gettext apt-utils x265 libtheora-dev libvorbis-dev libx265-dev iputils-ping mp3gain \
                       libmosquitto-dev mosquitto-clients mosquitto libzstd-dev lzma zstd gpiod libgpiod-dev libjsoncpp-dev libcurl4-openssl-dev \
                       fonts-freefont-ttf flex bison pkg-config libasound2-dev mesa-common-dev qrencode libusb-1.0-0-dev \
-                      flex bison pkg-config libasound2-dev python3-distutils libssl-dev libtool bsdextrautils iw rsyslog smartmontools"
+                      flex bison pkg-config libasound2-dev python3-distutils libssl-dev libtool bsdextrautils iw rsyslog smartmontools tzdata"
 
         if [ "$FPPPLATFORM" == "Raspberry Pi" -o "$FPPPLATFORM" == "BeagleBone Black" ]; then
             PACKAGE_LIST="$PACKAGE_LIST firmware-realtek firmware-atheros firmware-ralink firmware-brcm80211 firmware-iwlwifi firmware-libertas firmware-zd1211 firmware-ti-connectivity zram-tools"
@@ -506,6 +510,9 @@ case "${OSVER}" in
         fi
         if $isimage; then
             PACKAGE_LIST="$PACKAGE_LIST networkd-dispatcher systemd-resolved"
+        fi
+        if ! $build_vlc; then
+            PACKAGE_LIST="$PACKAGE_LIST vlc libvlc-dev"
         fi
 
         if $skip_apt_install; then
@@ -726,10 +733,6 @@ case "${FPPPLATFORM}" in
 
             echo "FPP - Disabling the hdmi force hotplug setting"
             sed -i -e "s/hdmi_force_hotplug/#hdmi_force_hotplug/" ${BOOTDIR}/config.txt
-
-            echo "FPP - Disabling the VC4 OpenGL driver"
-            sed -i -e "s/dtoverlay=vc4-fkms-v3d/#dtoverlay=vc4-fkms-v3d/" ${BOOTDIR}/config.txt
-            sed -i -e "s/dtoverlay=vc4-kms-v3d/#dtoverlay=vc4-kms-v3d/" ${BOOTDIR}/config.txt
             
             echo "FPP - Disabling Camera AutoDetect"
             sed -i -e "s/camera_auto_detect/#camera_auto_detect/" ${BOOTDIR}/config.txt
